@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "200056716627",
+    "project_id": "ican-all-aplication",
+    "storage_bucket": "ican-all-aplication.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:200056716627:android:37cf047271a6db5ad3f5a6",
+        "android_client_info": {
+          "package_name": "com.example.ican_center_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSY6SCyfyraDzNrEJiZOW_VG1zylHFtiQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:200056716627:android:6cd5808007679519d3f5a6",
+        "android_client_info": {
+          "package_name": "com.ican.specialcenter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSY6SCyfyraDzNrEJiZOW_VG1zylHFtiQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
