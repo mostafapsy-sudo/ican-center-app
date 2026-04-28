@@ -159,10 +159,23 @@ class _LoginPageState extends State<LoginPage> {
   final emailController = TextEditingController(text: 'admin@ican.com');
   final passwordController = TextEditingController(text: '123456');
   bool loading = false;
+  bool rememberMe = true; // تذكرني مفعّل افتراضيًا
 
   Future<void> login() async {
     setState(() => loading = true);
     try {
+      // تفعيل الـ persistence للويب إن أمكن
+      if (rememberMe) {
+        try {
+          await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+        } catch (_) {
+          // قد لا تكون متاحة على بعض المنصات - تجاهل
+        }
+      } else {
+        try {
+          await FirebaseAuth.instance.setPersistence(Persistence.SESSION);
+        } catch (_) {}
+      }
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
@@ -170,8 +183,13 @@ class _LoginPageState extends State<LoginPage> {
     } on FirebaseAuthException catch (e) {
       String msg = 'بيانات الدخول غير صحيحة';
       if (e.code == 'invalid-email') msg = 'صيغة البريد الإلكتروني غير صحيحة';
+      if (e.code == 'user-not-found') msg = 'المستخدم غير موجود';
+      if (e.code == 'wrong-password') msg = 'كلمة المرور غير صحيحة';
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -216,7 +234,16 @@ class _LoginPageState extends State<LoginPage> {
                       TextField(controller: emailController, keyboardType: TextInputType.emailAddress, decoration: inputDecoration('البريد الإلكتروني')),
                       const SizedBox(height: 12),
                       TextField(controller: passwordController, obscureText: true, decoration: inputDecoration('كلمة المرور')),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        value: rememberMe,
+                        onChanged: (v) => setState(() => rememberMe = v ?? true),
+                        title: const Text('تذكرني على هذا الجهاز', style: TextStyle(fontSize: 14)),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                      const SizedBox(height: 12),
                       FilledButton(
                         onPressed: loading ? null : login,
                         style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
@@ -1012,22 +1039,16 @@ class _AssessmentPageState extends State<AssessmentPage> {
               final docs = snapshot.data?.docs ?? [];
               if (docs.isEmpty) return const Text('لا يوجد أطفال. أضف طفلًا من لوحة الإدارة أولًا.');
 
-              return DropdownButtonFormField<String>(
+              final items = docs.map((doc) => {'id': doc.id, 'label': (doc.data()['name'] ?? 'بدون اسم').toString()}).toList();
+              return SearchableDropdown(
+                label: 'اختر الطفل',
                 value: selectedChildId,
-                decoration: inputDecoration('اختر الطفل'),
-                items: docs.map((doc) {
-                  final child = doc.data();
-                  final name = child['name'] ?? 'بدون اسم';
-                  return DropdownMenuItem<String>(
-                    value: doc.id,
-                    child: Text(name),
-                  );
-                }).toList(),
+                items: items,
                 onChanged: (value) {
-                  final doc = docs.firstWhere((d) => d.id == value);
+                  final doc = docs.where((d) => d.id == value).toList();
                   setState(() {
                     selectedChildId = value;
-                    selectedChildName = doc.data()['name'] ?? 'بدون اسم';
+                    selectedChildName = doc.isEmpty ? 'الطفل' : (doc.first.data()['name'] ?? 'بدون اسم');
                   });
                 },
               );
@@ -1351,109 +1372,118 @@ class _GoalsListCardState extends State<GoalsListCard> {
                     color: goalStageColor(goal),
                     margin: const EdgeInsets.only(bottom: 10),
                     child: Padding(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          ListTile(
-                            leading: const CircleAvatar(child: Icon(Icons.flag_rounded)),
-                            title: Text(text),
-                            subtitle: Text(
-                              'البرنامج: $program\n'
-                              'الحالة: $status\n'
-                              'مرحلة الهدف: ${goalStageArabic(goal['goalStage'] ?? 'active')}\n'
-                              'الأخصائي الذي أضاف الهدف: $specialist\n'
-                              '${moved ? 'تم نقله بواسطة: $movedBy بتاريخ: $movedDate' : 'لم يُنقل للبرنامج الأسبوعي بعد'}'
-                              '${lastPercent == null ? '' : '\nآخر نسبة إنجاز: $lastPercent%'}'
-                              '${lastPrompt == null ? '' : '\nآخر مساعدة: $lastPrompt'}'
-                              '${lastReinforcement == null ? '' : '\nآخر تعزيز: $lastReinforcement'}',
-                            ),
-                            isThreeLine: true,
-                            trailing: PopupMenuButton<String>(
-                              onSelected: (value) async {
-                                if (value == 'edit') {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => EditGoalDialog(goalId: doc.id, goal: goal),
-                                  );
-                                }
-                                if (value == 'delete') {
-                                  final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل هذا الهدف إلى السلة؟');
-                                  if (!ok) return;
-                                  await moveDocumentToTrash(
-                                    collectionName: 'goals',
-                                    docId: doc.id,
-                                    data: goal,
-                                    itemTitle: 'هدف: $text',
-                                  );
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل الهدف إلى السلة')));
+                          // 1. نص الهدف + زر القائمة
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: CircleAvatar(radius: 14, child: Icon(Icons.flag_rounded, size: 14)),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, height: 1.4)),
+                              ),
+                              PopupMenuButton<String>(
+                                onSelected: (value) async {
+                                  if (value == 'edit') showDialog(context: context, builder: (_) => EditGoalDialog(goalId: doc.id, goal: goal));
+                                  if (value == 'delete') {
+                                    final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل هذا الهدف إلى السلة؟');
+                                    if (!ok) return;
+                                    await moveDocumentToTrash(collectionName: 'goals', docId: doc.id, data: goal, itemTitle: 'هدف: $text');
+                                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل الهدف إلى السلة')));
                                   }
-                                }
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'edit', child: Text('تعديل')),
-                                PopupMenuItem(value: 'delete', child: Text('نقل للسلة')),
-                              ],
-                            ),
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(value: 'edit', child: Text('تعديل')),
+                                  PopupMenuItem(value: 'delete', child: Text('نقل للسلة')),
+                                ],
+                              ),
+                            ],
                           ),
+                          // 2. نسبة الإنجاز
+                          if (lastPercent != null) ...[
+                            const SizedBox(height: 4),
+                            Padding(
+                              padding: const EdgeInsets.only(right: 38),
+                              child: Text(
+                                'آخر نسبة إنجاز: $lastPercent%',
+                                style: TextStyle(fontSize: 12, color: (lastPercent as num) >= 70 ? Colors.green : Colors.orange, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                          // 3. أزرار الإجراءات - ظاهرة دائمًا
+                          const SizedBox(height: 8),
                           Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
+                            spacing: 6,
+                            runSpacing: 6,
                             children: [
                               if (selectedStage == 'active') ...[
-                                FilledButton(
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (_) => TransferGoalDialog(
-                                        goalId: doc.id,
-                                        goal: goal,
-                                      ),
-                                    );
-                                  },
-                                  child: const Text('نقل للأسبوع'),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => showDialog(context: context, builder: (_) => TransferGoalDialog(goalId: doc.id, goal: goal)),
+                                  icon: const Icon(Icons.calendar_today_rounded, size: 14),
+                                  label: const Text('نقل للأسبوع', style: TextStyle(fontSize: 12)),
                                 ),
                                 OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(
-                                    goalId: doc.id,
-                                    stage: 'mastered',
-                                    message: 'تم نقل الهدف إلى أرشيف الأهداف المتقنة',
-                                  ),
-                                  icon: const Icon(Icons.verified_rounded),
-                                  label: const Text('نقل للمتقنة'),
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'mastered', message: 'تم نقل الهدف إلى الأهداف المتقنة'),
+                                  icon: const Icon(Icons.verified_rounded, size: 14),
+                                  label: const Text('متقنة', style: TextStyle(fontSize: 12)),
                                 ),
                                 OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(
-                                    goalId: doc.id,
-                                    stage: 'longTerm',
-                                    message: 'تم نقل الهدف إلى الأهداف بعيدة المدى',
-                                  ),
-                                  icon: const Icon(Icons.schedule_rounded),
-                                  label: const Text('تأجيل كهدف بعيد المدى'),
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'longTerm', message: 'تم تأجيل الهدف'),
+                                  icon: const Icon(Icons.schedule_rounded, size: 14),
+                                  label: const Text('تأجيل', style: TextStyle(fontSize: 12)),
                                 ),
                               ],
                               if (selectedStage == 'longTerm')
                                 FilledButton.icon(
-                                  onPressed: () => updateGoalStage(
-                                    goalId: doc.id,
-                                    stage: 'active',
-                                    message: 'تم تنشيط الهدف وإعادته للأهداف النشطة',
-                                  ),
-                                  icon: const Icon(Icons.play_arrow_rounded),
-                                  label: const Text('تنشيط الهدف'),
+                                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم تنشيط الهدف'),
+                                  icon: const Icon(Icons.play_arrow_rounded, size: 14),
+                                  label: const Text('تنشيط', style: TextStyle(fontSize: 12)),
                                 ),
                               if (selectedStage == 'mastered')
                                 OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(
-                                    goalId: doc.id,
-                                    stage: 'active',
-                                    message: 'تم إعادة الهدف للأهداف النشطة',
-                                  ),
-                                  icon: const Icon(Icons.undo_rounded),
-                                  label: const Text('إعادة للنشط'),
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم إعادة الهدف للنشط'),
+                                  icon: const Icon(Icons.undo_rounded, size: 14),
+                                  label: const Text('إعادة للنشط', style: TextStyle(fontSize: 12)),
                                 ),
                             ],
+                          ),
+                          // 4. التفاصيل مخفية في الأسفل
+                          Theme(
+                            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                            child: ExpansionTile(
+                              initiallyExpanded: false,
+                              tilePadding: EdgeInsets.zero,
+                              dense: true,
+                              title: const Text('عرض التفاصيل', style: TextStyle(fontSize: 12, color: Colors.black45)),
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (program.toString().isNotEmpty) _goalDetailRow('البرنامج', program.toString()),
+                                      if (status.toString().isNotEmpty) _goalDetailRow('الحالة', status.toString()),
+                                      _goalDetailRow('مرحلة الهدف', goalStageArabic(goal['goalStage'] ?? 'active')),
+                                      if (specialist.toString().isNotEmpty) _goalDetailRow('الأخصائي', specialist.toString()),
+                                      _goalDetailRow(moved ? 'نُقل بواسطة' : 'الحالة', moved ? '$movedBy - $movedDate' : 'لم يُنقل للبرنامج بعد'),
+                                      if (lastPrompt != null) _goalDetailRow('آخر مساعدة', lastPrompt.toString()),
+                                      if (lastReinforcement != null) _goalDetailRow('آخر تعزيز', lastReinforcement.toString()),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -1467,6 +1497,19 @@ class _GoalsListCardState extends State<GoalsListCard> {
       ),
     );
   }
+}
+
+Widget _goalDetailRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 110, child: Text('$label:', style: const TextStyle(fontSize: 11, color: Colors.black54))),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 11))),
+      ],
+    ),
+  );
 }
 
 
@@ -1773,26 +1816,16 @@ class _WeeklyProgramPageState extends State<WeeklyProgramPage> {
                 stream: FirebaseFirestore.instance.collection('children').snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) return Text('خطأ في قراءة الأطفال: ${snapshot.error}');
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
                   final docs = snapshot.data?.docs ?? [];
+                  if (docs.isEmpty) return const Text('لا يوجد أطفال مضافون حتى الآن.');
 
-                  if (docs.isEmpty) {
-                    return const Text('لا يوجد أطفال مضافون حتى الآن.');
-                  }
-
-                  return DropdownButtonFormField<String>(
+                  final items = docs.map((doc) => {'id': doc.id, 'label': (doc.data()['name'] ?? 'بدون اسم').toString()}).toList();
+                  return SearchableDropdown(
+                    label: 'اختر الطفل',
                     value: selectedChildId,
-                    decoration: inputDecoration('اختر الطفل'),
-                    items: docs.map((doc) {
-                      final child = doc.data();
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text(child['name'] ?? 'بدون اسم'),
-                      );
-                    }).toList(),
+                    items: items,
                     onChanged: (value) {
                       final selected = docs.where((d) => d.id == value).toList();
                       setState(() {
@@ -2119,40 +2152,73 @@ class _WeeklyPlanItemCardState extends State<WeeklyPlanItemCard> {
       color: color,
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.item['goalText'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            // ✅ 1. نص الهدف
+            Text(widget.item['goalText'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, height: 1.4)),
             const SizedBox(height: 6),
-            Text('الطفل: ${widget.item['childName'] ?? '-'}'),
-            Text('نوع الجلسة: ${widget.item['sessionType'] ?? '-'}'),
-            Text('أضاف الهدف: ${widget.item['goalAuthor'] ?? '-'}'),
-            Text('نقله للأسبوع: ${widget.item['movedBy'] ?? '-'}'),
-            if (widget.item['seniorApproved'] == true)
-              Text('تمت المراجعة من: ${widget.item['seniorName'] ?? '-'}'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: promptLevel,
-              decoration: inputDecoration('نوع المساعدة'),
-              items: ['IND', 'VP', 'GP', 'PP', 'FP'].map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-              onChanged: (v) => setState(() => promptLevel = v ?? promptLevel),
+            // ✅ 2. نسبة الإنجاز
+            Row(
+              children: [
+                Icon(Icons.trending_up_rounded, size: 16, color: achievementPercent >= 70 ? Colors.green : Colors.orange),
+                const SizedBox(width: 4),
+                Text(
+                  'نسبة الإنجاز: $achievementPercent%',
+                  style: TextStyle(color: achievementPercent >= 70 ? Colors.green : Colors.orange, fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: reinforcementSchedule,
-              decoration: inputDecoration('جدول التعزيز'),
-              items: ['FR1', 'FR2', 'FR3', 'VR2', 'VR3', 'FI', 'VI'].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-              onChanged: (v) => setState(() => reinforcementSchedule = v ?? reinforcementSchedule),
+            // ✅ 3. التفاصيل + ضبط القيم داخل ExpansionTile
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                initiallyExpanded: false,
+                tilePadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('تفاصيل الهدف وضبط القيم', style: TextStyle(fontSize: 12, color: Colors.black45)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _goalDetailRow('الطفل', widget.item['childName'] ?? '-'),
+                        _goalDetailRow('نوع الجلسة', widget.item['sessionType'] ?? '-'),
+                        _goalDetailRow('أضاف الهدف', widget.item['goalAuthor'] ?? '-'),
+                        _goalDetailRow('نقله للأسبوع', widget.item['movedBy'] ?? '-'),
+                        if (widget.item['seniorApproved'] == true)
+                          _goalDetailRow('مراجعة السينيور', widget.item['seniorName'] ?? '-'),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: promptLevel,
+                          decoration: inputDecoration('نوع المساعدة'),
+                          items: ['IND', 'VP', 'GP', 'PP', 'FP'].map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+                          onChanged: (v) => setState(() => promptLevel = v ?? promptLevel),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: reinforcementSchedule,
+                          decoration: inputDecoration('جدول التعزيز'),
+                          items: ['FR1', 'FR2', 'FR3', 'VR2', 'VR3', 'FI', 'VI'].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                          onChanged: (v) => setState(() => reinforcementSchedule = v ?? reinforcementSchedule),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<int>(
+                          value: achievementPercent,
+                          decoration: inputDecoration('نسبة الإنجاز'),
+                          items: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((p) => DropdownMenuItem(value: p, child: Text('$p%'))).toList(),
+                          onChanged: (v) => setState(() => achievementPercent = v ?? achievementPercent),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              value: achievementPercent,
-              decoration: inputDecoration('نسبة الإنجاز'),
-              items: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((p) => DropdownMenuItem(value: p, child: Text('$p%'))).toList(),
-              onChanged: (v) => setState(() => achievementPercent = v ?? achievementPercent),
-            ),
-            const SizedBox(height: 8),
+            // ✅ 4. زر حفظ التقدم - ظاهر دائمًا
+            const SizedBox(height: 6),
             FilledButton.icon(
               onPressed: saving ? null : saveProgress,
               icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.save),
@@ -2203,16 +2269,11 @@ class _ReportsPageState extends State<ReportsPage> {
                 stream: FirebaseFirestore.instance.collection('children').snapshots(),
                 builder: (context, snapshot) {
                   final docs = snapshot.data?.docs ?? [];
-                  return DropdownButtonFormField<String>(
+                  final items = docs.map((doc) => {'id': doc.id, 'label': (doc.data()['name'] ?? 'بدون اسم').toString()}).toList();
+                  return SearchableDropdown(
+                    label: 'اختر الطفل',
                     value: selectedChildId,
-                    decoration: inputDecoration('اختر الطفل'),
-                    items: docs.map((doc) {
-                      final child = doc.data();
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text(child['name'] ?? 'بدون اسم'),
-                      );
-                    }).toList(),
+                    items: items,
                     onChanged: (value) {
                       final selected = docs.where((d) => d.id == value).toList();
                       setState(() {
@@ -3558,7 +3619,7 @@ class ParentHomePage extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               ParentChildInfoCard(childId: linkedChildId.toString()),
-              ParentGoalsCard(childId: linkedChildId.toString(), childName: linkedChildName.toString()),
+              _ParentGoalsExpansion(childId: linkedChildId.toString(), childName: linkedChildName.toString()),
               ParentWeeklyCard(
                 childId: linkedChildId.toString(),
                 childName: linkedChildName.toString(),
@@ -3632,12 +3693,21 @@ class ParentHomePage extends StatelessWidget {
                       return [
                         const SizedBox(height: 12),
                         ParentChildInfoCard(childId: cId),
-                        ParentGoalsCard(childId: cId, childName: cName),
+                        _ParentGoalsExpansion(childId: cId, childName: cName),
                         ParentWeeklyCard(childId: cId, childName: cName, year: now.year, month: now.month, week: week),
                         ReportPreviewCard(
                           childId: cId,
                           childName: cName,
                           reportType: 'أسبوعي',
+                          year: now.year,
+                          month: now.month,
+                          week: week,
+                          sessionFilter: 'كل أنواع الجلسات',
+                        ),
+                        ReportPreviewCard(
+                          childId: cId,
+                          childName: cName,
+                          reportType: 'شهري',
                           year: now.year,
                           month: now.month,
                           week: week,
@@ -3685,6 +3755,35 @@ class ParentChildInfoCard extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ولي الأمر: الخطة الفردية مخفية داخل ExpansionTile
+class _ParentGoalsExpansion extends StatelessWidget {
+  final String childId;
+  final String childName;
+  const _ParentGoalsExpansion({required this.childId, required this.childName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          leading: const Icon(Icons.assignment_rounded, color: Color(0xFF00A6A6)),
+          title: Text('عرض الخطة الفردية - $childName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          subtitle: const Text('اضغط لعرض أهداف طفلك', style: TextStyle(fontSize: 12, color: Colors.black54)),
+          childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          children: [
+            ParentGoalsCard(childId: childId, childName: childName),
+          ],
+        ),
       ),
     );
   }
@@ -3829,6 +3928,170 @@ class ParentWeeklyCard extends StatelessWidget {
     );
   }
 }
+
+// ======== بحث ذكي في القوائم ========
+class SearchableDropdown extends StatefulWidget {
+  final String label;
+  final String? value;
+  final List<Map<String, String>> items; // [{'id': ..., 'label': ...}]
+  final ValueChanged<String?> onChanged;
+  final String hint;
+
+  const SearchableDropdown({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.hint = 'اكتب للبحث...',
+  });
+
+  @override
+  State<SearchableDropdown> createState() => _SearchableDropdownState();
+}
+
+class _SearchableDropdownState extends State<SearchableDropdown> {
+  late TextEditingController _controller;
+  List<Map<String, String>> _filtered = [];
+  bool _open = false;
+  final FocusNode _focusNode = FocusNode();
+  bool _selecting = false; // منع الإغلاق أثناء الاختيار
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.items.where((e) => e['id'] == widget.value).map((e) => e['label'] ?? '').firstOrNull ?? '',
+    );
+    _filtered = List.from(widget.items);
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus && !_selecting) {
+        // تأخير بسيط لإتاحة معالجة onTap قبل الإغلاق
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted && !_selecting) setState(() => _open = false);
+        });
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchableDropdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != oldWidget.value) {
+      final match = widget.items.where((e) => e['id'] == widget.value).toList();
+      final newText = match.isEmpty ? '' : (match.first['label'] ?? '');
+      if (_controller.text != newText) _controller.text = newText;
+    }
+    if (widget.items.length != oldWidget.items.length) {
+      _filtered = List.from(widget.items);
+    }
+  }
+
+  void _filter(String query) {
+    setState(() {
+      _filtered = query.isEmpty
+          ? List.from(widget.items)
+          : widget.items.where((e) => (e['label'] ?? '').toLowerCase().contains(query.toLowerCase())).toList();
+      _open = true;
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          decoration: inputDecoration(widget.label).copyWith(
+            hintText: widget.hint,
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_controller.text.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _controller.clear();
+                        _filtered = List.from(widget.items);
+                        _open = true;
+                      });
+                      widget.onChanged(null);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(Icons.clear_rounded, size: 18),
+                    ),
+                  ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(Icons.search_rounded),
+                ),
+              ],
+            ),
+          ),
+          onChanged: _filter,
+          onTap: () {
+            setState(() {
+              _filtered = List.from(widget.items);
+              _open = true;
+            });
+          },
+        ),
+        if (_open && _filtered.isNotEmpty)
+          Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 240),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: _filtered.length,
+                itemBuilder: (context, index) {
+                  final item = _filtered[index];
+                  return InkWell(
+                    onTap: () {
+                      _selecting = true;
+                      final selectedId = item['id'] ?? '';
+                      final selectedLabel = item['label'] ?? '';
+                      setState(() {
+                        _controller.text = selectedLabel;
+                        _open = false;
+                      });
+                      widget.onChanged(selectedId.isNotEmpty ? selectedId : null);
+                      _focusNode.unfocus();
+                      Future.delayed(const Duration(milliseconds: 300), () {
+                        _selecting = false;
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Text(item['label'] ?? '', style: const TextStyle(fontSize: 14)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+// ======================================
 
 class InfoLine extends StatelessWidget {
   final String label;
@@ -4430,10 +4693,18 @@ class ManagerAttendanceView extends StatefulWidget {
 class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
   int selectedYear = DateTime.now().year;
   int selectedMonthNum = DateTime.now().month;
-  String selectedEmail = 'كل العاملين';
+  String selectedEmail = '';
+  String selectedUserName = '';
   final Map<String, Map<String, dynamic>> userDataByEmail = {};
 
   String get selectedMonth => '$selectedYear-${selectedMonthNum.toString().padLeft(2, '0')}';
+
+  String _arabicDay(int weekday) {
+    const days = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+    return days[(weekday - 1) % 7];
+  }
+
+  bool _isWeekend(DateTime date) => date.weekday == 5 || date.weekday == 6; // جمعة أو سبت
 
   @override
   Widget build(BuildContext context) {
@@ -4476,17 +4747,28 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                   userDataByEmail.clear();
                   for (final doc in userDocs) {
                     final data = doc.data();
+                    final role = (data['role'] ?? '').toString();
+                    if (role == 'parent') continue;
                     final email = (data['email'] ?? '').toString().toLowerCase().trim();
                     if (email.isNotEmpty) userDataByEmail[email] = data;
                   }
-                  final emails = ['كل العاملين', ...userDataByEmail.keys];
+                  final staffList = userDataByEmail.entries.toList();
                   return SizedBox(
-                    width: 260,
+                    width: 280,
                     child: DropdownButtonFormField<String>(
-                      value: emails.contains(selectedEmail) ? selectedEmail : 'كل العاملين',
-                      decoration: inputDecoration('اختيار العامل'),
-                      items: emails.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (value) => setState(() => selectedEmail = value ?? 'كل العاملين'),
+                      value: staffList.any((e) => e.key == selectedEmail) ? selectedEmail : null,
+                      decoration: inputDecoration('اختر العامل'),
+                      hint: const Text('اختر عاملًا لعرض جدوله'),
+                      items: staffList.map((e) {
+                        final name = (e.value['name'] ?? e.key).toString();
+                        return DropdownMenuItem<String>(value: e.key, child: Text(name));
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          selectedEmail = value ?? '';
+                          selectedUserName = value != null ? (userDataByEmail[value]?['name'] ?? value).toString() : '';
+                        });
+                      },
                     ),
                   );
                 },
@@ -4500,125 +4782,250 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
             label: const Text('تسجيل/تعديل يوم لعامل'),
           ),
           const SizedBox(height: 12),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection('attendance').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return Text('خطأ في قراءة الحضور: ${snapshot.error}');
-              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (selectedEmail.isEmpty)
+            const Text('اختر عاملًا من القائمة لعرض جدوله الشهري.', style: TextStyle(color: Colors.black54))
+          else
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('attendance')
+                  .where('userEmail', isEqualTo: selectedEmail)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return Text('خطأ: ${snapshot.error}');
+                if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-              var docs = snapshot.data?.docs ?? [];
+                // فلترة سجلات الشهر المختار
+                final allDocs = snapshot.data?.docs ?? [];
+                final monthDocs = allDocs.where((doc) {
+                  return (doc.data()['dateKey'] ?? '').toString().startsWith(selectedMonth);
+                }).toList();
 
-              docs = docs.where((doc) {
-                final item = doc.data();
-                final dateKey = (item['dateKey'] ?? '').toString();
-                final email = (item['userEmail'] ?? '').toString();
-                final matchesMonth = dateKey.startsWith(selectedMonth);
-                final matchesUser = selectedEmail == 'كل العاملين' || email == selectedEmail;
-                return matchesMonth && matchesUser;
-              }).toList();
+                // بناء خريطة dateKey → data
+                final recordMap = <String, Map<String, dynamic>>{};
+                for (final doc in monthDocs) {
+                  final item = doc.data();
+                  final dateKey = (item['dateKey'] ?? '').toString();
+                  if (dateKey.isNotEmpty) recordMap[dateKey] = {...item, '__docId': doc.id};
+                }
 
-              docs.sort((a, b) => (b.data()['dateKey'] ?? '').toString().compareTo((a.data()['dateKey'] ?? '').toString()));
+                // بناء قائمة كل أيام الشهر
+                final totalDays = daysInMonth(selectedYear, selectedMonthNum);
+                final daysList = List.generate(totalDays, (i) {
+                  return DateTime(selectedYear, selectedMonthNum, i + 1);
+                });
 
-              if (docs.isEmpty) return const Text('لا توجد تسجيلات في هذا الاختيار.');
+                final userData = userDataByEmail[selectedEmail];
+                final baseSalary = userData == null ? 0.0 : parseMoney(userData['baseSalary']);
+                final workStart = userData == null ? '09:00' : (userData['workStartTime'] ?? '09:00').toString();
+                final workEnd = userData == null ? '16:00' : (userData['workEndTime'] ?? '16:00').toString();
 
-              final records = docs.map((d) => d.data()).toList();
-              final selectedUserData = selectedEmail == 'كل العاملين' ? null : userDataByEmail[selectedEmail];
-              final summary = buildMonthlySummary(
-                records,
-                monthKey: selectedMonth,
-                baseSalary: selectedUserData == null ? 0 : parseMoney(selectedUserData['baseSalary']),
-                workStartText: selectedUserData == null ? '09:00' : (selectedUserData['workStartTime'] ?? '09:00').toString(),
-                workEndText: selectedUserData == null ? '16:00' : (selectedUserData['workEndTime'] ?? '16:00').toString(),
-              );
-              final quarterKey = quarterKeyForDateKey('$selectedMonth-01');
-              final quarterSummary = buildQuarterSummary(records, quarterKey);
+                // حساب الملخص مع احتساب الغياب التلقائي
+                // بناء سجلات فعلية + غياب تلقائي لأيام العمل بدون تسجيل في الماضي
+                final today = DateTime.now();
+                final isPastMonth = DateTime(selectedYear, selectedMonthNum + 1).isBefore(DateTime(today.year, today.month, today.day));
+                
+                final augmentedRecords = <Map<String, dynamic>>[];
+                for (final day in daysList) {
+                  if (_isWeekend(day)) continue;
+                  final dateKey = formatDateKey(day);
+                  if (recordMap.containsKey(dateKey)) {
+                    augmentedRecords.add(Map.from(recordMap[dateKey]!)..remove('__docId'));
+                  } else {
+                    // يوم عمل بدون تسجيل
+                    final isFutureDay = day.isAfter(today);
+                    if (!isFutureDay) {
+                      // شهر سابق كله غياب، أو اليوم مضى بدون تسجيل
+                      augmentedRecords.add({
+                        'dateKey': dateKey,
+                        'userEmail': selectedEmail,
+                        'userName': selectedUserName,
+                        'absenceType': 'غياب بخصم يوم',
+                        'isAutoAbsence': true,
+                        'lateMinutes': 0,
+                        'overtimeMinutes': 0,
+                      });
+                    }
+                  }
+                }
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  AttendanceSummaryPanel(
-                    summary: summary,
-                    quarterSummary: quarterSummary,
-                    quarterKey: quarterKey,
-                    showFinancials: true,
-                  ),
-                  const SizedBox(height: 12),
-                  Text('جدول الحضور - $selectedMonth', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  const SizedBox(height: 6),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(const Color(0xFFBDF2E9)),
-                      dataRowMinHeight: 40,
-                      dataRowMaxHeight: 56,
-                      columnSpacing: 12,
-                      columns: const [
-                        DataColumn(label: Text('التاريخ', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('العامل', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('حضور', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('انصراف', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('تأخير (د)', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('إضافي (د)', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('حالة اليوم', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('ملاحظات', style: TextStyle(fontWeight: FontWeight.bold))),
-                        DataColumn(label: Text('إجراء', style: TextStyle(fontWeight: FontWeight.bold))),
-                      ],
-                      rows: docs.map((doc) {
-                        final item = doc.data();
-                        final late = (item['lateMinutes'] as num? ?? 0).round();
-                        final overtime = (item['overtimeMinutes'] as num? ?? 0).round();
-                        final absType = (item['absenceType'] ?? 'لا يوجد غياب').toString();
-                        final hasDeduction = absenceDayDeduction(absType) > 0;
-                        final itemEmail = (item['userEmail'] ?? '').toString();
-                        final itemRole = (item['role'] ?? (userDataByEmail[itemEmail]?['role'] ?? '')).toString();
-                        final isSpecOrSenior = itemRole == 'specialist' || itemRole == 'senior';
-                        return DataRow(
-                          color: WidgetStateProperty.all(
-                            hasDeduction ? const Color(0xFFFFEAEA) : (late > 0 ? const Color(0xFFFFF8E1) : Colors.white),
-                          ),
-                          cells: [
-                            DataCell(Text(item['dateKey'] ?? '-', style: const TextStyle(fontSize: 12))),
-                            DataCell(Text(item['userName'] ?? '-', style: const TextStyle(fontSize: 12))),
-                            DataCell(Text(item['checkInText'] ?? '-', style: const TextStyle(fontSize: 12))),
-                            DataCell(Text(item['checkOutText'] ?? '-', style: const TextStyle(fontSize: 12))),
-                            DataCell(Text(late > 0 ? '$late' : '-', style: TextStyle(fontSize: 12, color: late > 0 ? Colors.orange : null))),
-                            DataCell(Text(overtime > 0 ? '$overtime' : '-', style: TextStyle(fontSize: 12, color: overtime > 0 ? Colors.green : null))),
-                            DataCell(SizedBox(width: 120, child: Text(absType, style: const TextStyle(fontSize: 11)))),
-                            DataCell(SizedBox(width: 100, child: Text((item['notes'] ?? '').toString(), style: const TextStyle(fontSize: 11)))),
-                            DataCell(Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit_rounded, size: 18),
-                                  tooltip: 'تعديل',
+                final summary = buildMonthlySummary(
+                  augmentedRecords,
+                  monthKey: selectedMonth,
+                  baseSalary: baseSalary,
+                  workStartText: workStart,
+                  workEndText: workEnd,
+                );
+                final quarterKey = quarterKeyForDateKey('$selectedMonth-01');
+                final quarterSummary = buildQuarterSummary(augmentedRecords, quarterKey);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ملخص مالي
+                    AttendanceSummaryPanel(
+                      summary: summary,
+                      quarterSummary: quarterSummary,
+                      quarterKey: quarterKey,
+                      showFinancials: true,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'جدول حضور $selectedUserName - $selectedMonth',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    const SizedBox(height: 6),
+                    // جدول كل أيام الشهر
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        headingRowColor: WidgetStateProperty.all(const Color(0xFFBDF2E9)),
+                        dataRowMinHeight: 36,
+                        dataRowMaxHeight: 48,
+                        columnSpacing: 10,
+                        columns: const [
+                          DataColumn(label: Text('التاريخ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('اليوم', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('حضور', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('انصراف', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('تأخير (د)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('إضافي (د)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('نوع اليوم', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('ملاحظات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          DataColumn(label: Text('تعديل', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                        ],
+                        rows: daysList.map((date) {
+                          final dateKey = formatDateKey(date);
+                          final isWeekend = _isWeekend(date);
+                          final arabicDay = _arabicDay(date.weekday);
+                          final record = recordMap[dateKey];
+                          final today = DateTime.now();
+                          final isFutureDay = date.isAfter(today);
+
+                          if (isWeekend) {
+                            return DataRow(
+                              color: WidgetStateProperty.all(const Color(0xFFEEEEEE)),
+                              cells: [
+                                DataCell(Text(dateKey, style: const TextStyle(fontSize: 11))),
+                                DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11, color: Colors.grey))),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('عطلة أسبوعية', style: TextStyle(fontSize: 11, color: Colors.grey))),
+                                const DataCell(Text('عطلة', style: TextStyle(color: Colors.grey, fontSize: 11))),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                              ],
+                            );
+                          }
+
+                          // يوم في المستقبل
+                          if (isFutureDay && record == null) {
+                            return DataRow(
+                              color: WidgetStateProperty.all(const Color(0xFFF0F4FF)),
+                              cells: [
+                                DataCell(Text(dateKey, style: const TextStyle(fontSize: 11, color: Colors.black38))),
+                                DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11, color: Colors.black38))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.black38))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.black38))),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('يوم عمل', style: TextStyle(fontSize: 11))),
+                                const DataCell(Text('لم يحن بعد', style: TextStyle(color: Colors.blue, fontSize: 11))),
+                                const DataCell(Text('-')),
+                                DataCell(IconButton(
+                                  icon: const Icon(Icons.add_rounded, size: 16),
+                                  tooltip: 'تسجيل مسبق',
                                   onPressed: () => showDialog(
                                     context: context,
-                                    builder: (_) => AttendanceEditDialog(existingDocId: doc.id, existingData: item),
-                                  ),
-                                ),
-                                if (isSpecOrSenior)
-                                  IconButton(
-                                    icon: const Icon(Icons.bar_chart_rounded, size: 18, color: Color(0xFF00A6A6)),
-                                    tooltip: 'تقرير الأداء',
-                                    onPressed: () => showDialog(
-                                      context: context,
-                                      builder: (_) => SpecialistPerformanceDialog(
-                                        specialistEmail: itemEmail,
-                                        specialistName: (item['userName'] ?? itemEmail).toString(),
-                                      ),
+                                    builder: (_) => AttendanceEditDialog(
+                                      existingData: {'dateKey': dateKey, 'userEmail': selectedEmail, 'userName': selectedUserName},
                                     ),
                                   ),
+                                )),
                               ],
-                            )),
-                          ],
-                        );
-                      }).toList(),
+                            );
+                          }
+
+                          // يوم ماضٍ بدون تسجيل = غياب تلقائي
+                          if (record == null) {
+                            return DataRow(
+                              color: WidgetStateProperty.all(const Color(0xFFFFE0E0)),
+                              cells: [
+                                DataCell(Text(dateKey, style: const TextStyle(fontSize: 11))),
+                                DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.grey))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.grey))),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('يوم عمل', style: TextStyle(fontSize: 11))),
+                                const DataCell(Text('غياب تلقائي', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold))),
+                                const DataCell(Text('بدون تسجيل', style: TextStyle(fontSize: 10, color: Colors.red))),
+                                DataCell(IconButton(
+                                  icon: const Icon(Icons.add_rounded, size: 16),
+                                  tooltip: 'تسجيل هذا اليوم',
+                                  onPressed: () => showDialog(
+                                    context: context,
+                                    builder: (_) => AttendanceEditDialog(
+                                      existingData: {'dateKey': dateKey, 'userEmail': selectedEmail, 'userName': selectedUserName},
+                                    ),
+                                  ),
+                                )),
+                              ],
+                            );
+                          }
+
+                          final late = (record['lateMinutes'] as num? ?? 0).round();
+                          final overtime = (record['overtimeMinutes'] as num? ?? 0).round();
+                          final absType = (record['absenceType'] ?? 'لا يوجد غياب').toString();
+                          final hasDeduction = absenceDayDeduction(absType) > 0;
+                          final docId = (record['__docId'] ?? '').toString();
+                          final recordForEdit = Map<String, dynamic>.from(record)..remove('__docId');
+                          
+                          // تحديد الحالة
+                          String statusText;
+                          if (absType.startsWith('غياب')) {
+                            statusText = 'غياب مخصوم';
+                          } else if (absType.contains('أجازة رسمية') || absType.contains('مدفوع')) {
+                            statusText = 'إجازة مدفوعة';
+                          } else if (absType.contains('مخصوم') || absType.contains('بخصم')) {
+                            statusText = 'إجازة مخصومة';
+                          } else {
+                            statusText = 'حاضر';
+                          }
+
+                          return DataRow(
+                            color: WidgetStateProperty.all(
+                              hasDeduction ? const Color(0xFFFFEAEA) : (late > 0 ? const Color(0xFFFFF8E1) : const Color(0xFFEEFFF6)),
+                            ),
+                            cells: [
+                              DataCell(Text(dateKey, style: const TextStyle(fontSize: 11))),
+                              DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11))),
+                              DataCell(Text(record['checkInText'] ?? '-', style: const TextStyle(fontSize: 11))),
+                              DataCell(Text(record['checkOutText'] ?? '-', style: const TextStyle(fontSize: 11))),
+                              DataCell(Text(late > 0 ? '$late' : '-', style: TextStyle(fontSize: 11, color: late > 0 ? Colors.orange : Colors.black54))),
+                              DataCell(Text(overtime > 0 ? '$overtime' : '-', style: TextStyle(fontSize: 11, color: overtime > 0 ? Colors.green : Colors.black54))),
+                              DataCell(Text('يوم عمل', style: const TextStyle(fontSize: 11))),
+                              DataCell(SizedBox(width: 110, child: Text(statusText, style: TextStyle(fontSize: 10, color: hasDeduction ? Colors.red : Colors.green.shade700, fontWeight: FontWeight.w600)))),
+                              DataCell(SizedBox(width: 90, child: Text((record['notes'] ?? absType).toString(), style: const TextStyle(fontSize: 10)))),
+                              DataCell(IconButton(
+                                icon: const Icon(Icons.edit_rounded, size: 15),
+                                tooltip: 'تعديل',
+                                onPressed: () => showDialog(
+                                  context: context,
+                                  builder: (_) => AttendanceEditDialog(existingDocId: docId.isNotEmpty ? docId : null, existingData: recordForEdit),
+                                ),
+                              )),
+                            ],
+                          );
+                        }).toList(),
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+                  ],
+                );
+              },
+            ),
         ],
       ),
     );
@@ -4654,18 +5061,19 @@ class AttendanceSummaryPanel extends StatelessWidget {
           InfoLine(label: 'أيام العمل الفعلية', value: '${summary.workingDays} يوم (بدون الجمعة والسبت)'),
           InfoLine(label: 'أيام الحضور المسجلة', value: '${summary.attendanceDaysCount} يوم'),
           InfoLine(label: 'تأخير الشهر', value: '${summary.totalLateMinutes} دقيقة'),
-          InfoLine(label: 'إضافي الشهر', value: '${summary.totalOvertimeMinutes} دقيقة'),
+          InfoLine(label: 'إضافي الشهر', value: '${summary.totalOvertimeMinutes} دقيقة (× 3 = ${summary.overtimePaidMinutes} دقيقة مدفوعة)'),
           InfoLine(label: 'إذن مدفوع', value: '${quarterSummary.paidPermissionUsed} / 2 في $quarterKey'),
           InfoLine(label: 'إذن مخصوم', value: '${quarterSummary.unpaidPermissionUsed} / 4 في $quarterKey'),
-          // بيانات مالية للمدير فقط
-          if (showFinancials && summary.baseSalary > 0) ...[
+          // بيانات مالية للمدير فقط - تظهر حتى لو الراتب صفر
+          if (showFinancials) ...[
             const Divider(),
             Text('التفاصيل المالية', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.brown)),
             const SizedBox(height: 4),
-            InfoLine(label: 'الراتب الشهري', value: '${summary.baseSalary.toStringAsFixed(2)} جنيه'),
-            InfoLine(label: 'أجر اليوم الفعلي', value: '${summary.dailyRate.toStringAsFixed(2)} جنيه / يوم'),
+            InfoLine(label: 'الراتب الشهري', value: summary.baseSalary > 0 ? '${summary.baseSalary.toStringAsFixed(2)} جنيه' : 'غير محدد'),
+            InfoLine(label: 'أجر اليوم الفعلي', value: summary.dailyRate > 0 ? '${summary.dailyRate.toStringAsFixed(2)} جنيه' : '-'),
+            InfoLine(label: 'أجر الدقيقة', value: summary.minuteRate > 0 ? '${summary.minuteRate.toStringAsFixed(4)} جنيه' : '-'),
             InfoLine(label: 'خصم التأخير', value: '${summary.lateDeductionMinutes} دقيقة = ${summary.lateDeductionAmount.toStringAsFixed(2)} جنيه'),
-            InfoLine(label: 'الإضافي المدفوع', value: '${summary.overtimePaidMinutes} دقيقة = ${summary.overtimeAmount.toStringAsFixed(2)} جنيه'),
+            InfoLine(label: 'قيمة الإضافي', value: '${summary.overtimePaidMinutes} دقيقة = ${summary.overtimeAmount.toStringAsFixed(2)} جنيه'),
             InfoLine(label: 'خصم الغياب', value: '${summary.absenceDeductionDays} يوم = ${summary.absenceDeductionAmount.toStringAsFixed(2)} جنيه'),
             const SizedBox(height: 4),
             Container(
@@ -4673,8 +5081,8 @@ class AttendanceSummaryPanel extends StatelessWidget {
               decoration: BoxDecoration(color: const Color(0xFFE7FFF8), borderRadius: BorderRadius.circular(10)),
               child: Column(
                 children: [
-                  InfoLine(label: 'المستحق حتى الآن', value: '${summary.earnedSoFar.toStringAsFixed(2)} جنيه (${summary.attendanceDaysCount} يوم × أجر اليوم)'),
-                  InfoLine(label: 'صافي الشهر المتوقع', value: '${summary.expectedNetSalary.toStringAsFixed(2)} جنيه'),
+                  InfoLine(label: 'صافي المستحق حتى الآن', value: '${summary.earnedSoFar.toStringAsFixed(2)} جنيه  (${summary.attendanceDaysCount} يوم × أجر اليوم + إضافي - تأخير)'),
+                  InfoLine(label: 'صافي الشهر المتوقع', value: '${summary.expectedNetSalary.toStringAsFixed(2)} جنيه  (الراتب + إضافي - خصومات)'),
                 ],
               ),
             ),
@@ -5329,16 +5737,11 @@ class _SeniorFollowUpPageState extends State<SeniorFollowUpPage> {
                   if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
                   final docs = snapshot.data?.docs ?? [];
                   if (docs.isEmpty) return const Text('لا يوجد أطفال مضافون بعد.');
-                  return DropdownButtonFormField<String>(
+                  final items = docs.map((doc) => {'id': doc.id, 'label': (doc.data()['name'] ?? 'بدون اسم').toString()}).toList();
+                  return SearchableDropdown(
+                    label: 'اختر الطفل',
                     value: selectedChildId,
-                    decoration: inputDecoration('اختر الطفل'),
-                    items: docs.map((doc) {
-                      final child = doc.data();
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text(child['name'] ?? 'بدون اسم'),
-                      );
-                    }).toList(),
+                    items: items,
                     onChanged: (value) {
                       final selected = docs.where((d) => d.id == value).toList();
                       setState(() {
@@ -5399,25 +5802,21 @@ class _SeniorFollowUpPageState extends State<SeniorFollowUpPage> {
 
               // 1. اسم الأخصائي
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('users')
-                    .snapshots(),
+                stream: FirebaseFirestore.instance.collection('users').snapshots(),
                 builder: (context, snapshot) {
                   final allDocs = snapshot.data?.docs ?? [];
                   final docs = allDocs.where((d) {
                     final r = (d.data()['role'] ?? '').toString();
                     return r == 'specialist' || r == 'senior';
                   }).toList();
-                  return DropdownButtonFormField<String>(
+                  final items = docs.map((doc) {
+                    final u = doc.data();
+                    return {'id': doc.id, 'label': '${u['name'] ?? '-'} (${u['role'] ?? ''})'};
+                  }).toList();
+                  return SearchableDropdown(
+                    label: 'اسم الأخصائي',
                     value: specialistId,
-                    decoration: inputDecoration('اسم الأخصائي'),
-                    items: docs.map((doc) {
-                      final u = doc.data();
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text('${u['name'] ?? '-'} (${u['role'] ?? ''})'),
-                      );
-                    }).toList(),
+                    items: items,
                     onChanged: (value) {
                       final sel = docs.where((d) => d.id == value).toList();
                       setState(() {

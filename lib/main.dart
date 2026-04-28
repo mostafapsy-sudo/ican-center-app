@@ -159,10 +159,23 @@ class _LoginPageState extends State<LoginPage> {
   final emailController = TextEditingController(text: 'admin@ican.com');
   final passwordController = TextEditingController(text: '123456');
   bool loading = false;
+  bool rememberMe = true; // تذكرني مفعّل افتراضيًا
 
   Future<void> login() async {
     setState(() => loading = true);
     try {
+      // تفعيل الـ persistence للويب إن أمكن
+      if (rememberMe) {
+        try {
+          await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+        } catch (_) {
+          // قد لا تكون متاحة على بعض المنصات - تجاهل
+        }
+      } else {
+        try {
+          await FirebaseAuth.instance.setPersistence(Persistence.SESSION);
+        } catch (_) {}
+      }
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
@@ -170,8 +183,13 @@ class _LoginPageState extends State<LoginPage> {
     } on FirebaseAuthException catch (e) {
       String msg = 'بيانات الدخول غير صحيحة';
       if (e.code == 'invalid-email') msg = 'صيغة البريد الإلكتروني غير صحيحة';
+      if (e.code == 'user-not-found') msg = 'المستخدم غير موجود';
+      if (e.code == 'wrong-password') msg = 'كلمة المرور غير صحيحة';
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -216,7 +234,16 @@ class _LoginPageState extends State<LoginPage> {
                       TextField(controller: emailController, keyboardType: TextInputType.emailAddress, decoration: inputDecoration('البريد الإلكتروني')),
                       const SizedBox(height: 12),
                       TextField(controller: passwordController, obscureText: true, decoration: inputDecoration('كلمة المرور')),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        value: rememberMe,
+                        onChanged: (v) => setState(() => rememberMe = v ?? true),
+                        title: const Text('تذكرني على هذا الجهاز', style: TextStyle(fontSize: 14)),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                      const SizedBox(height: 12),
                       FilledButton(
                         onPressed: loading ? null : login,
                         style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
@@ -258,27 +285,27 @@ class _HomePageState extends State<HomePage> {
     final list = <TabItem>[];
 
     if (widget.role == 'manager') {
-      list.add(const TabItem('الإدارة', Icons.dashboard_rounded, ManagerDashboardPage()));
+      list.add(const TabItem('🏢 الإدارة', Icons.dashboard_rounded, ManagerDashboardPage()));
     }
 
     if (widget.role == 'manager' || widget.role == 'senior' || widget.role == 'specialist') {
-      list.add(const TabItem('الحضور', Icons.fingerprint_rounded, AttendancePage()));
-      list.add(const TabItem('التقييم', Icons.assignment_rounded, AssessmentPage()));
-      list.add(const TabItem('البرنامج', Icons.calendar_month_rounded, WeeklyProgramPage()));
-      list.add(const TabItem('التقارير', Icons.summarize_rounded, ReportsPage()));
+      list.add(const TabItem('✅ الحضور', Icons.fingerprint_rounded, AttendancePage()));
+      list.add(const TabItem('🎯 التقييم', Icons.assignment_rounded, AssessmentPage()));
+      list.add(const TabItem('🧩 البرنامج', Icons.calendar_month_rounded, WeeklyProgramPage()));
+      list.add(const TabItem('📊 التقارير', Icons.summarize_rounded, ReportsPage()));
     }
 
     if (widget.role == 'manager' || widget.role == 'senior') {
-      list.add(const TabItem('متابعة السينيور', Icons.verified_rounded, SeniorFollowUpPage()));
+      list.add(const TabItem('⭐ السينيور', Icons.verified_rounded, SeniorFollowUpPage()));
     }
 
     if (widget.role == 'parent') {
-      list.add(const TabItem('ولي الأمر', Icons.family_restroom_rounded, ParentHomePage()));
+      list.add(const TabItem('👪 ولي الأمر', Icons.family_restroom_rounded, ParentHomePage()));
     }
 
     if (widget.role == 'manager') {
-      list.add(const TabItem('العاملون', Icons.badge_rounded, UsersPage()));
-      list.add(const TabItem('السلة', Icons.delete_sweep_rounded, TrashPage()));
+      list.add(const TabItem('👥 العاملون', Icons.badge_rounded, UsersPage()));
+      list.add(const TabItem('🗑️ السلة', Icons.delete_sweep_rounded, TrashPage()));
     }
 
     return list;
@@ -317,7 +344,7 @@ class ManagerDashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return const PageWrap(
       children: [
-        HeroBox(title: 'لوحة الإدارة', subtitle: 'الأطفال يُحفظون فعليًا في Firestore.'),
+        HeroBox(title: '🏢 لوحة الإدارة', subtitle: 'الأطفال 👧🧒 يُحفظون فعليًا في Firestore.'),
         SizedBox(height: 12),
         AddChildCard(),
         SizedBox(height: 12),
@@ -456,7 +483,7 @@ class _AddChildCardState extends State<AddChildCard> {
           onExpansionChanged: (v) => setState(() => _expanded = v),
           leading: const Icon(Icons.child_care_rounded, color: Color(0xFF00A6A6)),
           title: const Text(
-            'إضافة طفل جديد',
+            '➕ إضافة طفل جديد 👧',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
           ),
           subtitle: const Text('اضغط لفتح نموذج الإضافة', style: TextStyle(fontSize: 12, color: Colors.black54)),
@@ -587,7 +614,7 @@ class RealStatsRow extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(child: StatMiniCard(title: 'العاملون', value: '$staffCount')),
                         const SizedBox(width: 8),
-                        Expanded(child: StatMiniCard(title: 'التقارير', value: '$totalReports')),
+                        Expanded(child: StatMiniCard(title: '📊 التقارير', value: '$totalReports')),
                       ],
                     );
                   },
@@ -625,77 +652,164 @@ class StatMiniCard extends StatelessWidget {
   }
 }
 
-class ChildrenListCard extends StatelessWidget {
+class ChildrenListCard extends StatefulWidget {
   const ChildrenListCard({super.key});
+
+  @override
+  State<ChildrenListCard> createState() => _ChildrenListCardState();
+}
+
+class _ChildrenListCardState extends State<ChildrenListCard> {
+  static const int _pageSize = 20;
+  int _visibleCount = _pageSize;
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return SectionCard(
-      title: 'قائمة الأطفال من Firestore',
+      title: '👧🧒 قائمة الأطفال',
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('children').orderBy('createdAt', descending: true).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('children')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return Text('حدث خطأ: ${snapshot.error}');
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) return const Text('لا يوجد أطفال مضافون حتى الآن.');
+          final allDocs = snapshot.data?.docs ?? [];
+          if (allDocs.isEmpty) return const Text('لا يوجد أطفال مضافون حتى الآن.');
+
+          // فلترة البحث على كل البيانات أولًا
+          final filtered = _searchQuery.isEmpty
+              ? allDocs
+              : allDocs.where((doc) {
+                  final name = (doc.data()['name'] ?? '').toString().toLowerCase();
+                  final diag = (doc.data()['diagnosis'] ?? '').toString().toLowerCase();
+                  final q = _searchQuery.toLowerCase();
+                  return name.contains(q) || diag.contains(q);
+                }).toList();
+
+          // تطبيق pagination على النتائج المفلترة
+          final visibleDocs = filtered.take(_visibleCount).toList();
+          final hasMore = filtered.length > _visibleCount;
 
           return Column(
-            children: docs.map((doc) {
-              final child = doc.data();
-              final name = child['name'] ?? 'بدون اسم';
-              final program = child['program'] ?? '-';
-              final diagnosis = child['diagnosis'] ?? '-';
-              final parentName = child['parentName'] ?? '-';
-              final savedAge = child['ageText'] ?? '-';
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.child_care)),
-                  title: Text(name),
-                  subtitle: Text(
-                    'العمر: $savedAge\n'
-                    'البرنامج: $program\n'
-                    'التشخيص: $diagnosis\n'
-                    'ولي الأمر: ${child['parentName'] != null && child['parentName'].toString().isNotEmpty ? child['parentName'] : "غير مربوط بولي أمر"}',
-                  ),
-                  isThreeLine: true,
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      if (value == 'report') {
-                        showReportDialog(context, name, 'تقرير شامل للطفل $name');
-                      }
-                      if (value == 'edit') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => EditChildDialog(childId: doc.id, child: child),
-                        );
-                      }
-                      if (value == 'delete') {
-                        final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل $name إلى السلة؟');
-                        if (!ok) return;
-                        await moveDocumentToTrash(
-                          collectionName: 'children',
-                          docId: doc.id,
-                          data: child,
-                          itemTitle: 'طفل: $name',
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم نقل $name إلى السلة')));
-                        }
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'report', child: Text('عرض التقرير')),
-                      PopupMenuItem(value: 'edit', child: Text('تعديل')),
-                      PopupMenuItem(value: 'delete', child: Text('نقل للسلة')),
-                    ],
-                  ),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // حقل البحث يشمل كل الأطفال
+              TextField(
+                controller: _searchCtrl,
+                decoration: inputDecoration('🔍 بحث باسم الطفل أو التشخيص').copyWith(
+                  suffixIcon: _searchQuery.isEmpty
+                      ? const Icon(Icons.search_rounded)
+                      : IconButton(
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: () => setState(() {
+                            _searchCtrl.clear();
+                            _searchQuery = '';
+                            _visibleCount = _pageSize;
+                          }),
+                        ),
                 ),
-              );
-            }).toList(),
+                onChanged: (v) => setState(() {
+                  _searchQuery = v.trim();
+                  _visibleCount = _pageSize; // إعادة الـ pagination عند البحث
+                }),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'إجمالي: ${allDocs.length} | معروض: ${visibleDocs.length}${_searchQuery.isNotEmpty ? ' (نتائج البحث: ${filtered.length})' : ''}',
+                style: const TextStyle(fontSize: 12, color: Colors.black45),
+              ),
+              const SizedBox(height: 8),
+              // القائمة بـ ListView.builder للأداء
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: visibleDocs.length,
+                itemBuilder: (context, index) {
+                  final doc = visibleDocs[index];
+                  final child = doc.data();
+                  final name = child['name'] ?? 'بدون اسم';
+                  final program = child['program'] ?? '-';
+                  final diagnosis = child['diagnosis'] ?? '-';
+                  final savedAge = child['ageText'] ?? '-';
+                  final parentDisplay = child['parentName'] != null && child['parentName'].toString().isNotEmpty
+                      ? child['parentName'].toString()
+                      : 'غير مربوط بولي أمر';
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.child_care)),
+                      title: Text(name),
+                      subtitle: Text(
+                        'العمر: $savedAge\nالبرنامج: $program\nالتشخيص: $diagnosis\nولي الأمر: $parentDisplay',
+                      ),
+                      isThreeLine: true,
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'report') {
+                            showReportDialog(context, name, 'تقرير شامل للطفل $name');
+                          }
+                          if (value == 'edit') {
+                            showDialog(
+                              context: context,
+                              builder: (_) => EditChildDialog(childId: doc.id, child: child),
+                            );
+                          }
+                          if (value == 'delete') {
+                            final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل $name إلى السلة؟');
+                            if (!ok) return;
+                            await moveDocumentToTrash(
+                              collectionName: 'children',
+                              docId: doc.id,
+                              data: child,
+                              itemTitle: 'طفل: $name',
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('تم نقل $name إلى السلة')));
+                            }
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'report', child: Text('عرض التقرير')),
+                          PopupMenuItem(value: 'edit', child: Text('تعديل')),
+                          PopupMenuItem(value: 'delete', child: Text('نقل للسلة')),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // زر تحميل المزيد
+              if (hasMore)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() => _visibleCount += _pageSize),
+                    icon: const Icon(Icons.expand_more_rounded),
+                    label: Text('تحميل المزيد (${filtered.length - _visibleCount} متبقي)'),
+                  ),
+                )
+              else if (filtered.length > _pageSize)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text('✅ تم عرض كل الأطفال', textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black45, fontSize: 12)),
+                ),
+            ],
           );
         },
       ),
@@ -956,7 +1070,7 @@ class _BackupCardState extends State<BackupCard> {
   @override
   Widget build(BuildContext context) {
     return SectionCard(
-      title: 'النسخ الاحتياطي',
+      title: '💾 النسخ الاحتياطي',
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -966,12 +1080,12 @@ class _BackupCardState extends State<BackupCard> {
             icon: loading
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.download_rounded),
-            label: Text(loading ? 'جار التنزيل...' : 'تنزيل نسخة احتياطية'),
+            label: Text(loading ? '⏳ جار التنزيل...' : '💾 تنزيل نسخة احتياطية'),
           ),
           OutlinedButton.icon(
             onPressed: loading ? null : restoreFromFile,
             icon: const Icon(Icons.upload_file_rounded),
-            label: const Text('استرداد من ملف JSON'),
+            label: const Text('📂 استرداد من ملف JSON'),
           ),
         ],
       ),
@@ -997,12 +1111,12 @@ class _AssessmentPageState extends State<AssessmentPage> {
     return PageWrap(
       children: [
         const HeroBox(
-          title: 'تقييم الطفل والخطة الفردية',
-          subtitle: 'اختر الطفل من Firebase ثم أضف أهدافًا حقيقية مرتبطة به.',
+          title: '🎯 تقييم الطفل والخطة الفردية',
+          subtitle: 'اختر الطفل 👧 من Firebase ثم أضف أهدافًا 🎯 حقيقية مرتبطة به.',
         ),
         const SizedBox(height: 12),
         SectionCard(
-          title: 'اختيار الطفل',
+          title: '🔍 اختيار الطفل',
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance.collection('children').orderBy('createdAt', descending: true).snapshots(),
             builder: (context, snapshot) {
@@ -1163,7 +1277,7 @@ class _AddGoalCardState extends State<AddGoalCard> {
           initiallyExpanded: _expanded,
           onExpansionChanged: (v) => setState(() => _expanded = v),
           leading: const Icon(Icons.add_circle_rounded, color: Color(0xFF00A6A6)),
-          title: Text('إضافة أهداف جديدة - ${widget.childName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          title: Text('➕ إضافة أهداف جديدة 🎯 - ${widget.childName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           subtitle: const Text('اضغط لفتح نموذج إضافة الأهداف', style: TextStyle(fontSize: 12, color: Colors.black54)),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
@@ -1238,6 +1352,8 @@ class GoalsListCard extends StatefulWidget {
 
 class _GoalsListCardState extends State<GoalsListCard> {
   String selectedStage = 'active';
+  static const int _goalsPageSize = 10;
+  int _visibleGoals = 10;
 
   String titleForStage() {
     switch (selectedStage) {
@@ -1292,7 +1408,7 @@ class _GoalsListCardState extends State<GoalsListCard> {
   @override
   Widget build(BuildContext context) {
     return SectionCard(
-      title: 'أهداف الطفل: ${widget.childName}',
+      title: '🎯 أهداف الطفل: ${widget.childName}',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1303,7 +1419,10 @@ class _GoalsListCardState extends State<GoalsListCard> {
               ButtonSegment(value: 'mastered', label: Text('متقنة'), icon: Icon(Icons.verified_rounded)),
             ],
             selected: {selectedStage},
-            onSelectionChanged: (value) => setState(() => selectedStage = value.first),
+            onSelectionChanged: (value) => setState(() {
+              selectedStage = value.first;
+              _visibleGoals = _goalsPageSize; // إعادة ضبط الـ pagination عند تغيير القسم
+            }),
           ),
           const SizedBox(height: 12),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1326,8 +1445,25 @@ class _GoalsListCardState extends State<GoalsListCard> {
                 return Text('لا توجد أهداف في قسم: ${titleForStage()}');
               }
 
+              // Pagination: عرض _visibleGoals فقط
+              final visibleDocs = docs.take(_visibleGoals).toList();
+              final hasMore = docs.length > _visibleGoals;
+
               return Column(
-                children: docs.map((doc) {
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'إجمالي: ${docs.length} هدف | معروض: ${visibleDocs.length}',
+                    style: const TextStyle(fontSize: 11, color: Colors.black45),
+                  ),
+                  const SizedBox(height: 6),
+                  // القائمة بـ ListView.builder للأداء
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: visibleDocs.length,
+                    itemBuilder: (context, index) {
+                      final doc = visibleDocs[index];
                   final goal = doc.data();
                   final text = goal['text'] ?? '';
                   final program = goal['program'] ?? '';
@@ -1345,30 +1481,25 @@ class _GoalsListCardState extends State<GoalsListCard> {
                     color: goalStageColor(goal),
                     margin: const EdgeInsets.only(bottom: 10),
                     child: Padding(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // الظاهر دائمًا: نص الهدف + آخر نسبة إنجاز + أزرار
+                          // 1. نص الهدف + زر القائمة
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const CircleAvatar(radius: 16, child: Icon(Icons.flag_rounded, size: 16)),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: CircleAvatar(radius: 14, child: Icon(Icons.flag_rounded, size: 14)),
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                                    if (lastPercent != null)
-                                      Text('آخر نسبة إنجاز: $lastPercent%', style: const TextStyle(fontSize: 12, color: Colors.teal)),
-                                  ],
-                                ),
+                                child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, height: 1.4)),
                               ),
                               PopupMenuButton<String>(
                                 onSelected: (value) async {
-                                  if (value == 'edit') {
-                                    showDialog(context: context, builder: (_) => EditGoalDialog(goalId: doc.id, goal: goal));
-                                  }
+                                  if (value == 'edit') showDialog(context: context, builder: (_) => EditGoalDialog(goalId: doc.id, goal: goal));
                                   if (value == 'delete') {
                                     final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل هذا الهدف إلى السلة؟');
                                     if (!ok) return;
@@ -1383,72 +1514,109 @@ class _GoalsListCardState extends State<GoalsListCard> {
                               ),
                             ],
                           ),
-                          // التفاصيل الإضافية مخفية داخل ExpansionTile
+                          // 2. نسبة الإنجاز
+                          if (lastPercent != null) ...[
+                            const SizedBox(height: 4),
+                            Padding(
+                              padding: const EdgeInsets.only(right: 38),
+                              child: Text(
+                                'آخر نسبة إنجاز: $lastPercent%',
+                                style: TextStyle(fontSize: 12, color: (lastPercent as num) >= 70 ? Colors.green : Colors.orange, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                          // 3. أزرار الإجراءات - ظاهرة دائمًا
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (selectedStage == 'active') ...[
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => showDialog(context: context, builder: (_) => TransferGoalDialog(goalId: doc.id, goal: goal)),
+                                  icon: const Icon(Icons.calendar_today_rounded, size: 14),
+                                  label: const Text('📅 نقل للأسبوع', style: TextStyle(fontSize: 12)),
+                                ),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'mastered', message: 'تم نقل الهدف إلى الأهداف المتقنة'),
+                                  icon: const Icon(Icons.verified_rounded, size: 14),
+                                  label: const Text('✅ متقنة', style: TextStyle(fontSize: 12)),
+                                ),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'longTerm', message: 'تم تأجيل الهدف'),
+                                  icon: const Icon(Icons.schedule_rounded, size: 14),
+                                  label: const Text('تأجيل', style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                              if (selectedStage == 'longTerm')
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم تنشيط الهدف'),
+                                  icon: const Icon(Icons.play_arrow_rounded, size: 14),
+                                  label: const Text('تنشيط', style: TextStyle(fontSize: 12)),
+                                ),
+                              if (selectedStage == 'mastered')
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: Size.zero),
+                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم إعادة الهدف للنشط'),
+                                  icon: const Icon(Icons.undo_rounded, size: 14),
+                                  label: const Text('إعادة للنشط', style: TextStyle(fontSize: 12)),
+                                ),
+                            ],
+                          ),
+                          // 4. التفاصيل مخفية في الأسفل
                           Theme(
                             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                             child: ExpansionTile(
                               initiallyExpanded: false,
                               tilePadding: EdgeInsets.zero,
-                              title: const Text('تفاصيل الهدف', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                              dense: true,
+                              title: const Text('🔍 عرض التفاصيل', style: TextStyle(fontSize: 12, color: Colors.black45)),
                               children: [
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (program.isNotEmpty) Text('البرنامج: $program', style: const TextStyle(fontSize: 12)),
-                                      if (status.isNotEmpty) Text('الحالة: $status', style: const TextStyle(fontSize: 12)),
-                                      Text('مرحلة الهدف: ${goalStageArabic(goal['goalStage'] ?? 'active')}', style: const TextStyle(fontSize: 12)),
-                                      if (specialist.isNotEmpty) Text('الأخصائي: $specialist', style: const TextStyle(fontSize: 12)),
-                                      if (moved) Text('نُقل بواسطة: $movedBy بتاريخ: $movedDate', style: const TextStyle(fontSize: 12)),
-                                      if (lastPrompt != null) Text('آخر مساعدة: $lastPrompt', style: const TextStyle(fontSize: 12)),
-                                      if (lastReinforcement != null) Text('آخر تعزيز: $lastReinforcement', style: const TextStyle(fontSize: 12)),
+                                      if (program.toString().isNotEmpty) _goalDetailRow('البرنامج', program.toString()),
+                                      if (status.toString().isNotEmpty) _goalDetailRow('الحالة', status.toString()),
+                                      _goalDetailRow('مرحلة الهدف', goalStageArabic(goal['goalStage'] ?? 'active')),
+                                      if (specialist.toString().isNotEmpty) _goalDetailRow('الأخصائي', specialist.toString()),
+                                      _goalDetailRow(moved ? 'نُقل بواسطة' : 'الحالة', moved ? '$movedBy - $movedDate' : 'لم يُنقل للبرنامج بعد'),
+                                      if (lastPrompt != null) _goalDetailRow('آخر مساعدة', lastPrompt.toString()),
+                                      if (lastReinforcement != null) _goalDetailRow('آخر تعزيز', lastReinforcement.toString()),
                                     ],
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          // أزرار الإجراءات
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if (selectedStage == 'active') ...[
-                                FilledButton(
-                                  onPressed: () => showDialog(context: context, builder: (_) => TransferGoalDialog(goalId: doc.id, goal: goal)),
-                                  child: const Text('نقل للأسبوع'),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'mastered', message: 'تم نقل الهدف إلى أرشيف الأهداف المتقنة'),
-                                  icon: const Icon(Icons.verified_rounded),
-                                  label: const Text('نقل للمتقنة'),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'longTerm', message: 'تم نقل الهدف إلى الأهداف بعيدة المدى'),
-                                  icon: const Icon(Icons.schedule_rounded),
-                                  label: const Text('تأجيل'),
-                                ),
-                              ],
-                              if (selectedStage == 'longTerm')
-                                FilledButton.icon(
-                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم تنشيط الهدف'),
-                                  icon: const Icon(Icons.play_arrow_rounded),
-                                  label: const Text('تنشيط الهدف'),
-                                ),
-                              if (selectedStage == 'mastered')
-                                OutlinedButton.icon(
-                                  onPressed: () => updateGoalStage(goalId: doc.id, stage: 'active', message: 'تم إعادة الهدف للأهداف النشطة'),
-                                  icon: const Icon(Icons.undo_rounded),
-                                  label: const Text('إعادة للنشط'),
-                                ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
                   );
-                }).toList(),
+                },
+                  ),
+                  // زر تحميل المزيد
+                  if (hasMore)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () => setState(() => _visibleGoals += _goalsPageSize),
+                        icon: const Icon(Icons.expand_more_rounded),
+                        label: Text('تحميل المزيد (${docs.length - _visibleGoals} متبقي)'),
+                      ),
+                    )
+                  else if (docs.length > _goalsPageSize)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text('✅ تم عرض كل الأهداف', textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.black45, fontSize: 12)),
+                    ),
+                ],
               );
             },
           ),
@@ -1456,6 +1624,19 @@ class _GoalsListCardState extends State<GoalsListCard> {
       ),
     );
   }
+}
+
+Widget _goalDetailRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 110, child: Text('$label:', style: const TextStyle(fontSize: 11, color: Colors.black54))),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 11))),
+      ],
+    ),
+  );
 }
 
 
@@ -1750,12 +1931,12 @@ class _WeeklyProgramPageState extends State<WeeklyProgramPage> {
     return PageWrap(
       children: [
         const HeroBox(
-          title: 'البرنامج الأسبوعي',
-          subtitle: 'اختر الطفل أولًا، ثم تظهر أهدافه فقط مرتبة حسب نوع الجلسة واسم الأخصائي.',
+          title: '🧩 البرنامج الأسبوعي',
+          subtitle: 'اختر الطفل 👧 أولًا، ثم تظهر أهدافه 🎯 مرتبة حسب نوع الجلسة 🧩 واسم الأخصائي 👨‍🏫.',
         ),
         const SizedBox(height: 12),
         SectionCard(
-          title: 'فلترة البرنامج',
+          title: '🔍 فلترة البرنامج',
           child: Column(
             children: [
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -2098,73 +2279,77 @@ class _WeeklyPlanItemCardState extends State<WeeklyPlanItemCard> {
       color: color,
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // الظاهر دائمًا: نص الهدف + نسبة الإنجاز + أزرار
-            Text(widget.item['goalText'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            const SizedBox(height: 4),
+            // ✅ 1. نص الهدف
+            Text(widget.item['goalText'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, height: 1.4)),
+            const SizedBox(height: 6),
+            // ✅ 2. نسبة الإنجاز
             Row(
               children: [
                 Icon(Icons.trending_up_rounded, size: 16, color: achievementPercent >= 70 ? Colors.green : Colors.orange),
                 const SizedBox(width: 4),
-                Text('نسبة الإنجاز: $achievementPercent%', style: TextStyle(color: achievementPercent >= 70 ? Colors.green : Colors.orange, fontWeight: FontWeight.w600)),
+                Text(
+                  'نسبة الإنجاز: $achievementPercent%',
+                  style: TextStyle(color: achievementPercent >= 70 ? Colors.green : Colors.orange, fontWeight: FontWeight.w600, fontSize: 13),
+                ),
               ],
             ),
-            // التفاصيل مخفية
+            // ✅ 3. التفاصيل + ضبط القيم داخل ExpansionTile
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 initiallyExpanded: false,
                 tilePadding: EdgeInsets.zero,
-                title: const Text('تفاصيل', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                dense: true,
+                title: const Text('🔍 تفاصيل الهدف وضبط القيم', style: TextStyle(fontSize: 12, color: Colors.black45)),
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('الطفل: ${widget.item['childName'] ?? '-'}', style: const TextStyle(fontSize: 12)),
-                        Text('نوع الجلسة: ${widget.item['sessionType'] ?? '-'}', style: const TextStyle(fontSize: 12)),
-                        Text('أضاف الهدف: ${widget.item['goalAuthor'] ?? '-'}', style: const TextStyle(fontSize: 12)),
-                        Text('نقله للأسبوع: ${widget.item['movedBy'] ?? '-'}', style: const TextStyle(fontSize: 12)),
+                        _goalDetailRow('الطفل', widget.item['childName'] ?? '-'),
+                        _goalDetailRow('نوع الجلسة', widget.item['sessionType'] ?? '-'),
+                        _goalDetailRow('أضاف الهدف', widget.item['goalAuthor'] ?? '-'),
+                        _goalDetailRow('نقله للأسبوع', widget.item['movedBy'] ?? '-'),
                         if (widget.item['seniorApproved'] == true)
-                          Text('مراجعة السينيور: ${widget.item['seniorName'] ?? '-'}', style: const TextStyle(fontSize: 12, color: Colors.green)),
-                        Text('المساعدة: $promptLevel | التعزيز: $reinforcementSchedule', style: const TextStyle(fontSize: 12)),
+                          _goalDetailRow('مراجعة السينيور', widget.item['seniorName'] ?? '-'),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: promptLevel,
+                          decoration: inputDecoration('نوع المساعدة'),
+                          items: ['IND', 'VP', 'GP', 'PP', 'FP'].map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+                          onChanged: (v) => setState(() => promptLevel = v ?? promptLevel),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: reinforcementSchedule,
+                          decoration: inputDecoration('جدول التعزيز'),
+                          items: ['FR1', 'FR2', 'FR3', 'VR2', 'VR3', 'FI', 'VI'].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                          onChanged: (v) => setState(() => reinforcementSchedule = v ?? reinforcementSchedule),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<int>(
+                          value: achievementPercent,
+                          decoration: inputDecoration('نسبة الإنجاز'),
+                          items: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((p) => DropdownMenuItem(value: p, child: Text('$p%'))).toList(),
+                          onChanged: (v) => setState(() => achievementPercent = v ?? achievementPercent),
+                        ),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            // dropdowns تبقى ظاهرة لتسهيل التحديث
-            DropdownButtonFormField<String>(
-              value: promptLevel,
-              decoration: inputDecoration('نوع المساعدة'),
-              items: ['IND', 'VP', 'GP', 'PP', 'FP'].map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-              onChanged: (v) => setState(() => promptLevel = v ?? promptLevel),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: reinforcementSchedule,
-              decoration: inputDecoration('جدول التعزيز'),
-              items: ['FR1', 'FR2', 'FR3', 'VR2', 'VR3', 'FI', 'VI'].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-              onChanged: (v) => setState(() => reinforcementSchedule = v ?? reinforcementSchedule),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              value: achievementPercent,
-              decoration: inputDecoration('نسبة الإنجاز'),
-              items: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((p) => DropdownMenuItem(value: p, child: Text('$p%'))).toList(),
-              onChanged: (v) => setState(() => achievementPercent = v ?? achievementPercent),
-            ),
-            const SizedBox(height: 8),
+            // ✅ 4. زر حفظ التقدم - ظاهر دائمًا
+            const SizedBox(height: 6),
             FilledButton.icon(
               onPressed: saving ? null : saveProgress,
               icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.save),
-              label: Text(saving ? 'جار الحفظ...' : 'حفظ التقدم'),
+              label: Text(saving ? '⏳ جار الحفظ...' : '💾 حفظ التقدم'),
             ),
           ],
         ),
@@ -2204,7 +2389,7 @@ class _ReportsPageState extends State<ReportsPage> {
         ),
         const SizedBox(height: 12),
         SectionCard(
-          title: 'اختيارات التقرير',
+          title: '📊 اختيارات التقرير',
           child: Column(
             children: [
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -2597,7 +2782,7 @@ class _SeniorReportSectionState extends State<SeniorReportSection> {
           initiallyExpanded: _expanded,
           onExpansionChanged: (v) => setState(() => _expanded = v),
           leading: const Icon(Icons.verified_user_rounded, color: Color(0xFF00A6A6)),
-          title: const Text('تقرير السينيورز', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          title: const Text('📊 تقرير السينيورز ⭐', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           subtitle: const Text('اضغط لعرض وتصدير تقارير التقييم الإشرافي', style: TextStyle(fontSize: 12, color: Colors.black54)),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
@@ -2788,46 +2973,52 @@ class SeniorReportPreview extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            // تفاصيل كل تقييم
-            ...docs.map((doc) {
-              final r = doc.data();
-              final stars = (r['rating'] as num? ?? 0).toInt();
-              return Card(
-                color: const Color(0xFFF8FBFF),
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.person_rounded, color: Color(0xFF00A6A6), size: 20),
-                          const SizedBox(width: 6),
-                          Expanded(child: Text(r['specialistName'] ?? '-', style: const TextStyle(fontWeight: FontWeight.bold))),
-                          ...List.generate(5, (i) => Icon(
-                            i < stars ? Icons.star_rounded : Icons.star_border_rounded,
-                            color: Colors.amber, size: 16,
-                          )),
-                          Text(' $stars/5', style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text('الجلسة: ${r['sessionType'] ?? '-'} | أهداف: ${r['goalsCount'] ?? 0} | فيديوهات: ${r['videosCount'] ?? 0}',
-                          style: const TextStyle(fontSize: 12)),
-                      Text('دافعية: ${r['motivationLevel'] ?? '-'} | سلوك: ${r['behaviorLevel'] ?? '-'} | تحقق الأهداف: ${r['goalsAchievement'] ?? '-'} | ولي الأمر: ${r['parentInteraction'] ?? '-'}',
-                          style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                      if ((r['generalNotes'] ?? '').toString().isNotEmpty)
-                        Text('التطورات: ${r['generalNotes']}', style: const TextStyle(fontSize: 12)),
-                      if ((r['technicalGuidance'] ?? '').toString().isNotEmpty)
-                        Text('التوجيهات: ${r['technicalGuidance']}', style: const TextStyle(fontSize: 12)),
-                      if ((r['technicalSuggestions'] ?? '').toString().isNotEmpty)
-                        Text('المقترحات: ${r['technicalSuggestions']}', style: const TextStyle(fontSize: 12)),
-                    ],
+            // تفاصيل كل تقييم بـ ListView.builder للأداء
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final doc = docs[index];
+                final r = doc.data();
+                final stars = (r['rating'] as num? ?? 0).toInt();
+                return Card(
+                  color: const Color(0xFFF8FBFF),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.person_rounded, color: Color(0xFF00A6A6), size: 20),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(r['specialistName'] ?? '-', style: const TextStyle(fontWeight: FontWeight.bold))),
+                            ...List.generate(5, (i) => Icon(
+                              i < stars ? Icons.star_rounded : Icons.star_border_rounded,
+                              color: Colors.amber, size: 16,
+                            )),
+                            Text(' $stars/5', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text('الجلسة: ${r['sessionType'] ?? '-'} | أهداف: ${r['goalsCount'] ?? 0} | فيديوهات: ${r['videosCount'] ?? 0}',
+                            style: const TextStyle(fontSize: 12)),
+                        Text('دافعية: ${r['motivationLevel'] ?? '-'} | سلوك: ${r['behaviorLevel'] ?? '-'} | تحقق الأهداف: ${r['goalsAchievement'] ?? '-'} | ولي الأمر: ${r['parentInteraction'] ?? '-'}',
+                            style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                        if ((r['generalNotes'] ?? '').toString().isNotEmpty)
+                          Text('التطورات: ${r['generalNotes']}', style: const TextStyle(fontSize: 12)),
+                        if ((r['technicalGuidance'] ?? '').toString().isNotEmpty)
+                          Text('التوجيهات: ${r['technicalGuidance']}', style: const TextStyle(fontSize: 12)),
+                        if ((r['technicalSuggestions'] ?? '').toString().isNotEmpty)
+                          Text('المقترحات: ${r['technicalSuggestions']}', style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            }),
+                );
+              },
+            ),
             const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: () async {
@@ -2841,7 +3032,7 @@ class SeniorReportPreview extends StatelessWidget {
                 );
               },
               icon: const Icon(Icons.picture_as_pdf),
-              label: const Text('تصدير تقرير السينيورز PDF'),
+              label: const Text('📊 تصدير تقرير السينيورز PDF'),
             ),
           ],
         );
@@ -3167,8 +3358,8 @@ class _UsersPageState extends State<UsersPage> {
     return PageWrap(
       children: [
         const HeroBox(
-          title: 'إدارة العاملين والصلاحيات',
-          subtitle: 'تتغير الحقول تلقائيًا حسب الدور: موظف أو ولي أمر.',
+          title: '👥 إدارة العاملين والصلاحيات',
+          subtitle: 'تتغير الحقول تلقائيًا حسب الدور: موظف 👨‍🏫 أو ولي أمر 👪.',
         ),
         const SizedBox(height: 12),
         // نموذج الإضافة داخل ExpansionTile
@@ -3183,7 +3374,7 @@ class _UsersPageState extends State<UsersPage> {
               onExpansionChanged: (v) => setState(() => _formExpanded = v),
               leading: const Icon(Icons.person_add_rounded, color: Color(0xFF00A6A6)),
               title: const Text(
-                'إضافة عامل أو ولي أمر جديد',
+                '➕ إضافة عامل 👨‍🏫 أو ولي أمر جديد 👪',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
               ),
               subtitle: const Text('اضغط لفتح نموذج الإضافة', style: TextStyle(fontSize: 12, color: Colors.black54)),
@@ -3277,7 +3468,7 @@ class _UsersPageState extends State<UsersPage> {
                   icon: saving
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.person_add_rounded),
-                  label: Text(saving ? 'جار إنشاء الحساب...' : isParent ? 'إنشاء حساب ولي الأمر' : 'إنشاء حساب المستخدم'),
+                  label: Text(saving ? '⏳ جار إنشاء الحساب...' : isParent ? '👪 إنشاء حساب ولي الأمر' : '👤 إنشاء حساب المستخدم'),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -3296,13 +3487,57 @@ class _UsersPageState extends State<UsersPage> {
   }
 }
 
+/// يعرض متوسط تقييم النجوم لأخصائي معين من seniorReports
+class SpecialistRatingBadge extends StatelessWidget {
+  final String specialistEmail;
+  const SpecialistRatingBadge({super.key, required this.specialistEmail});
+
+  @override
+  Widget build(BuildContext context) {
+    if (specialistEmail.isEmpty) return const SizedBox.shrink();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('seniorReports')
+          .where('specialistEmail', isEqualTo: specialistEmail)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 1.5));
+        }
+        final docs = snapshot.data?.docs ?? [];
+        final ratings = docs
+            .map((d) => (d.data()['rating'] as num? ?? 0).toDouble())
+            .where((r) => r > 0)
+            .toList();
+        if (ratings.isEmpty) {
+          return const Text('لا يوجد تقييم بعد', style: TextStyle(fontSize: 11, color: Colors.black45));
+        }
+        final avg = ratings.reduce((a, b) => a + b) / ratings.length;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ...List.generate(5, (i) {
+              if (i < avg.floor()) return const Icon(Icons.star_rounded, color: Colors.amber, size: 16);
+              if (i < avg.ceil() && avg - avg.floor() >= 0.5) return const Icon(Icons.star_half_rounded, color: Colors.amber, size: 16);
+              return const Icon(Icons.star_border_rounded, color: Colors.amber, size: 16);
+            }),
+            const SizedBox(width: 4),
+            Text('${avg.toStringAsFixed(1)} / 5', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber)),
+            Text(' (${ratings.length})', style: const TextStyle(fontSize: 11, color: Colors.black45)),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class UsersListCard extends StatelessWidget {
   const UsersListCard({super.key});
 
   @override
   Widget build(BuildContext context) {
     return SectionCard(
-      title: 'قائمة العاملين / المستخدمين',
+      title: '👥 قائمة العاملين / المستخدمين',
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance.collection('users').snapshots(),
         builder: (context, snapshot) {
@@ -3312,56 +3547,71 @@ class UsersListCard extends StatelessWidget {
           final docs = snapshot.data?.docs ?? [];
           if (docs.isEmpty) return const Text('لا يوجد مستخدمون مضافون حتى الآن.');
 
-          return Column(
-            children: docs.map((doc) {
+          return ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              final doc = docs[index];
               final user = doc.data();
               final name = user['name'] ?? 'بدون اسم';
               final roleArabic = user['roleArabic'] ?? user['role'] ?? '-';
               final jobTitle = user['jobTitle'] ?? '-';
-              final email = user['email'] ?? '-';
+              final email = (user['email'] ?? '-').toString();
               final salary = user['baseSalary'] ?? '-';
+              final role = (user['role'] ?? '').toString();
+              final isSpecialist = role == 'specialist' || role == 'senior';
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.badge_rounded)),
-                  title: Text(name),
-                  subtitle: Text(
-                    user['role'] == 'parent'
-                        ? 'الدور: $roleArabic\nالإيميل: $email\nالطفل المرتبط: ${user['linkedChildName'] ?? '-'}\nالهاتف: ${user['phone'] ?? '-'}\nUID: ${user['uid'] ?? '-'}'
-                        : 'الدور: $roleArabic\nالوظيفة: $jobTitle\nالإيميل: $email\nالراتب الأساسي: $salary\nUID: ${user['uid'] ?? '-'}',
-                  ),
-                  isThreeLine: true,
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      if (value == 'edit') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => EditUserDialog(userId: doc.id, user: user),
-                        );
-                      }
-                      if (value == 'delete') {
-                        final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل هذا المستخدم إلى السلة؟');
-                        if (!ok) return;
-                        await moveDocumentToTrash(
-                          collectionName: 'users',
-                          docId: doc.id,
-                          data: user,
-                          itemTitle: 'مستخدم: $name',
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل المستخدم إلى السلة')));
-                        }
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'edit', child: Text('تعديل')),
-                      PopupMenuItem(value: 'delete', child: Text('نقل للسلة')),
-                    ],
-                  ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: CircleAvatar(child: Icon(isSpecialist ? Icons.person_rounded : (role == 'parent' ? Icons.family_restroom_rounded : Icons.badge_rounded))),
+                      title: Text('$name ${isSpecialist ? '👨‍🏫' : (role == 'parent' ? '👪' : (role == 'manager' ? '🏢' : ''))}'),
+                      subtitle: Text(
+                        role == 'parent'
+                            ? 'الدور: $roleArabic\nالإيميل: $email\nالطفل المرتبط: ${user['linkedChildName'] ?? '-'}\nالهاتف: ${user['phone'] ?? '-'}\nUID: ${user['uid'] ?? '-'}'
+                            : 'الدور: $roleArabic\nالوظيفة: $jobTitle\nالإيميل: $email\nالراتب الأساسي: $salary\nUID: ${user['uid'] ?? '-'}',
+                      ),
+                      isThreeLine: true,
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'edit') {
+                            showDialog(context: context, builder: (_) => EditUserDialog(userId: doc.id, user: user));
+                          }
+                          if (value == 'perf') {
+                            showDialog(context: context, builder: (_) => SpecialistPerformanceDialog(specialistEmail: email, specialistName: name));
+                          }
+                          if (value == 'delete') {
+                            final ok = await confirmDialog(context, 'نقل للسلة', 'هل تريد نقل هذا المستخدم إلى السلة؟');
+                            if (!ok) return;
+                            await moveDocumentToTrash(collectionName: 'users', docId: doc.id, data: user, itemTitle: 'مستخدم: $name');
+                            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل المستخدم إلى السلة')));
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(value: 'edit', child: Text('✏️ تعديل')),
+                          if (isSpecialist) const PopupMenuItem(value: 'perf', child: Text('⭐ تقرير الأداء')),
+                          const PopupMenuItem(value: 'delete', child: Text('🗑️ نقل للسلة')),
+                        ],
+                      ),
+                    ),
+                    // ⭐ عرض متوسط التقييم للأخصائيين
+                    if (isSpecialist)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 72, left: 16, bottom: 10),
+                        child: Row(
+                          children: [
+                            const Text('تقييم الأداء: ', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            SpecialistRatingBadge(specialistEmail: email),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               );
-            }).toList(),
+            },
           );
         },
       ),
@@ -3897,6 +4147,7 @@ class _SearchableDropdownState extends State<SearchableDropdown> {
   List<Map<String, String>> _filtered = [];
   bool _open = false;
   final FocusNode _focusNode = FocusNode();
+  bool _selecting = false; // منع الإغلاق أثناء الاختيار
 
   @override
   void initState() {
@@ -3904,9 +4155,14 @@ class _SearchableDropdownState extends State<SearchableDropdown> {
     _controller = TextEditingController(
       text: widget.items.where((e) => e['id'] == widget.value).map((e) => e['label'] ?? '').firstOrNull ?? '',
     );
-    _filtered = widget.items;
+    _filtered = List.from(widget.items);
     _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) setState(() => _open = false);
+      if (!_focusNode.hasFocus && !_selecting) {
+        // تأخير بسيط لإتاحة معالجة onTap قبل الإغلاق
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted && !_selecting) setState(() => _open = false);
+        });
+      }
     });
   }
 
@@ -3915,16 +4171,19 @@ class _SearchableDropdownState extends State<SearchableDropdown> {
     super.didUpdateWidget(oldWidget);
     if (widget.value != oldWidget.value) {
       final match = widget.items.where((e) => e['id'] == widget.value).toList();
-      _controller.text = match.isEmpty ? '' : (match.first['label'] ?? '');
+      final newText = match.isEmpty ? '' : (match.first['label'] ?? '');
+      if (_controller.text != newText) _controller.text = newText;
     }
-    _filtered = widget.items;
+    if (widget.items.length != oldWidget.items.length) {
+      _filtered = List.from(widget.items);
+    }
   }
 
   void _filter(String query) {
     setState(() {
-      _filtered = widget.items
-          .where((e) => (e['label'] ?? '').toLowerCase().contains(query.toLowerCase()))
-          .toList();
+      _filtered = query.isEmpty
+          ? List.from(widget.items)
+          : widget.items.where((e) => (e['label'] ?? '').toLowerCase().contains(query.toLowerCase())).toList();
       _open = true;
     });
   }
@@ -3946,41 +4205,78 @@ class _SearchableDropdownState extends State<SearchableDropdown> {
           focusNode: _focusNode,
           decoration: inputDecoration(widget.label).copyWith(
             hintText: widget.hint,
-            suffixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_controller.text.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _controller.clear();
+                        _filtered = List.from(widget.items);
+                        _open = true;
+                      });
+                      widget.onChanged(null);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(Icons.clear_rounded, size: 18),
+                    ),
+                  ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(Icons.search_rounded),
+                ),
+              ],
+            ),
           ),
           onChanged: _filter,
           onTap: () {
             setState(() {
-              _filtered = widget.items;
+              _filtered = List.from(widget.items);
               _open = true;
             });
           },
         ),
         if (_open && _filtered.isNotEmpty)
-          Container(
-            constraints: const BoxConstraints(maxHeight: 220),
-            margin: const EdgeInsets.only(top: 2),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: _filtered.map((item) {
-                return ListTile(
-                  dense: true,
-                  title: Text(item['label'] ?? '', style: const TextStyle(fontSize: 14)),
-                  onTap: () {
-                    setState(() {
-                      _controller.text = item['label'] ?? '';
-                      _open = false;
-                    });
-                    widget.onChanged(item['id']);
-                    _focusNode.unfocus();
-                  },
-                );
-              }).toList(),
+          Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 240),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: _filtered.length,
+                itemBuilder: (context, index) {
+                  final item = _filtered[index];
+                  return InkWell(
+                    onTap: () {
+                      _selecting = true;
+                      final selectedId = item['id'] ?? '';
+                      final selectedLabel = item['label'] ?? '';
+                      setState(() {
+                        _controller.text = selectedLabel;
+                        _open = false;
+                      });
+                      widget.onChanged(selectedId.isNotEmpty ? selectedId : null);
+                      _focusNode.unfocus();
+                      Future.delayed(const Duration(milliseconds: 300), () {
+                        _selecting = false;
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Text(item['label'] ?? '', style: const TextStyle(fontSize: 14)),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
       ],
@@ -4331,7 +4627,7 @@ class AttendancePage extends StatelessWidget {
     return PageWrap(
       children: [
         const HeroBox(
-          title: 'الحضور والانصراف',
+          title: '✅ الحضور والانصراف',
           subtitle: 'النظام يحسب تأخير الشهر: أول 30 دقيقة بدون خصم، ثاني 30 دقيقة دقيقة بدقيقة، وبعدها الدقيقة بدقيقتين. والإدارة تقدر تعدل أي يوم أو تسجله كإجازة أو غياب.',
         ),
         const SizedBox(height: 12),
@@ -4364,7 +4660,7 @@ class AttendanceRulesCard extends StatelessWidget {
         child: ExpansionTile(
           initiallyExpanded: false,
           leading: const Icon(Icons.rule_rounded, color: Color(0xFF00A6A6)),
-          title: const Text('عرض قواعد الحضور والانصراف والإجازات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          title: const Text('📋 عرض قواعد الحضور والانصراف والإجازات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
             const InfoLine(label: 'التأخير 1', value: 'أول 30 دقيقة في الشهر لا تخصم'),
@@ -4605,7 +4901,7 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
   @override
   Widget build(BuildContext context) {
     return SectionCard(
-      title: 'متابعة حضور العاملين - الإدارة',
+      title: '✅ متابعة حضور العاملين',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -4675,7 +4971,7 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
           FilledButton.icon(
             onPressed: () => showDialog(context: context, builder: (_) => const AttendanceEditDialog()),
             icon: const Icon(Icons.add_task_rounded),
-            label: const Text('تسجيل/تعديل يوم لعامل'),
+            label: const Text('✏️ تسجيل/تعديل يوم لعامل'),
           ),
           const SizedBox(height: 12),
           if (selectedEmail.isEmpty)
@@ -4715,17 +5011,44 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                 final workStart = userData == null ? '09:00' : (userData['workStartTime'] ?? '09:00').toString();
                 final workEnd = userData == null ? '16:00' : (userData['workEndTime'] ?? '16:00').toString();
 
-                // حساب الملخص من السجلات الفعلية فقط
-                final records = monthDocs.map((d) => d.data()).toList();
+                // حساب الملخص مع احتساب الغياب التلقائي
+                // بناء سجلات فعلية + غياب تلقائي لأيام العمل بدون تسجيل في الماضي
+                final today = DateTime.now();
+                final isPastMonth = DateTime(selectedYear, selectedMonthNum + 1).isBefore(DateTime(today.year, today.month, today.day));
+                
+                final augmentedRecords = <Map<String, dynamic>>[];
+                for (final day in daysList) {
+                  if (_isWeekend(day)) continue;
+                  final dateKey = formatDateKey(day);
+                  if (recordMap.containsKey(dateKey)) {
+                    augmentedRecords.add(Map.from(recordMap[dateKey]!)..remove('__docId'));
+                  } else {
+                    // يوم عمل بدون تسجيل
+                    final isFutureDay = day.isAfter(today);
+                    if (!isFutureDay) {
+                      // شهر سابق كله غياب، أو اليوم مضى بدون تسجيل
+                      augmentedRecords.add({
+                        'dateKey': dateKey,
+                        'userEmail': selectedEmail,
+                        'userName': selectedUserName,
+                        'absenceType': 'غياب بخصم يوم',
+                        'isAutoAbsence': true,
+                        'lateMinutes': 0,
+                        'overtimeMinutes': 0,
+                      });
+                    }
+                  }
+                }
+
                 final summary = buildMonthlySummary(
-                  records,
+                  augmentedRecords,
                   monthKey: selectedMonth,
                   baseSalary: baseSalary,
                   workStartText: workStart,
                   workEndText: workEnd,
                 );
                 final quarterKey = quarterKeyForDateKey('$selectedMonth-01');
-                final quarterSummary = buildQuarterSummary(records, quarterKey);
+                final quarterSummary = buildQuarterSummary(augmentedRecords, quarterKey);
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4768,6 +5091,8 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                           final isWeekend = _isWeekend(date);
                           final arabicDay = _arabicDay(date.weekday);
                           final record = recordMap[dateKey];
+                          final today = DateTime.now();
+                          final isFutureDay = date.isAfter(today);
 
                           if (isWeekend) {
                             return DataRow(
@@ -4779,7 +5104,7 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                                 const DataCell(Text('-')),
                                 const DataCell(Text('-')),
                                 const DataCell(Text('-')),
-                                DataCell(Text(arabicDay == 'الجمعة' || arabicDay == 'السبت' ? 'عطلة أسبوعية' : '', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+                                const DataCell(Text('عطلة أسبوعية', style: TextStyle(fontSize: 11, color: Colors.grey))),
                                 const DataCell(Text('عطلة', style: TextStyle(color: Colors.grey, fontSize: 11))),
                                 const DataCell(Text('-')),
                                 const DataCell(Text('-')),
@@ -4787,9 +5112,38 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                             );
                           }
 
+                          // يوم في المستقبل
+                          if (isFutureDay && record == null) {
+                            return DataRow(
+                              color: WidgetStateProperty.all(const Color(0xFFF0F4FF)),
+                              cells: [
+                                DataCell(Text(dateKey, style: const TextStyle(fontSize: 11, color: Colors.black38))),
+                                DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11, color: Colors.black38))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.black38))),
+                                const DataCell(Text('-', style: TextStyle(color: Colors.black38))),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('-')),
+                                const DataCell(Text('يوم عمل', style: TextStyle(fontSize: 11))),
+                                const DataCell(Text('لم يحن بعد', style: TextStyle(color: Colors.blue, fontSize: 11))),
+                                const DataCell(Text('-')),
+                                DataCell(IconButton(
+                                  icon: const Icon(Icons.add_rounded, size: 16),
+                                  tooltip: 'تسجيل مسبق',
+                                  onPressed: () => showDialog(
+                                    context: context,
+                                    builder: (_) => AttendanceEditDialog(
+                                      existingData: {'dateKey': dateKey, 'userEmail': selectedEmail, 'userName': selectedUserName},
+                                    ),
+                                  ),
+                                )),
+                              ],
+                            );
+                          }
+
+                          // يوم ماضٍ بدون تسجيل = غياب تلقائي
                           if (record == null) {
                             return DataRow(
-                              color: WidgetStateProperty.all(const Color(0xFFFFF0F0)),
+                              color: WidgetStateProperty.all(const Color(0xFFFFE0E0)),
                               cells: [
                                 DataCell(Text(dateKey, style: const TextStyle(fontSize: 11))),
                                 DataCell(Text(arabicDay, style: const TextStyle(fontSize: 11))),
@@ -4797,9 +5151,9 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                                 const DataCell(Text('-', style: TextStyle(color: Colors.grey))),
                                 const DataCell(Text('-')),
                                 const DataCell(Text('-')),
-                                const DataCell(Text('يوم عمل')),
-                                const DataCell(Text('لم يسجل', style: TextStyle(color: Colors.red, fontSize: 11))),
-                                const DataCell(Text('-')),
+                                const DataCell(Text('يوم عمل', style: TextStyle(fontSize: 11))),
+                                const DataCell(Text('غياب تلقائي', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold))),
+                                const DataCell(Text('بدون تسجيل', style: TextStyle(fontSize: 10, color: Colors.red))),
                                 DataCell(IconButton(
                                   icon: const Icon(Icons.add_rounded, size: 16),
                                   tooltip: 'تسجيل هذا اليوم',
@@ -4820,6 +5174,18 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                           final hasDeduction = absenceDayDeduction(absType) > 0;
                           final docId = (record['__docId'] ?? '').toString();
                           final recordForEdit = Map<String, dynamic>.from(record)..remove('__docId');
+                          
+                          // تحديد الحالة
+                          String statusText;
+                          if (absType.startsWith('غياب')) {
+                            statusText = 'غياب مخصوم';
+                          } else if (absType.contains('أجازة رسمية') || absType.contains('مدفوع')) {
+                            statusText = 'إجازة مدفوعة';
+                          } else if (absType.contains('مخصوم') || absType.contains('بخصم')) {
+                            statusText = 'إجازة مخصومة';
+                          } else {
+                            statusText = 'حاضر';
+                          }
 
                           return DataRow(
                             color: WidgetStateProperty.all(
@@ -4833,20 +5199,15 @@ class _ManagerAttendanceViewState extends State<ManagerAttendanceView> {
                               DataCell(Text(late > 0 ? '$late' : '-', style: TextStyle(fontSize: 11, color: late > 0 ? Colors.orange : Colors.black54))),
                               DataCell(Text(overtime > 0 ? '$overtime' : '-', style: TextStyle(fontSize: 11, color: overtime > 0 ? Colors.green : Colors.black54))),
                               DataCell(Text('يوم عمل', style: const TextStyle(fontSize: 11))),
-                              DataCell(SizedBox(width: 110, child: Text(absType, style: const TextStyle(fontSize: 10)))),
-                              DataCell(SizedBox(width: 90, child: Text((record['notes'] ?? '').toString(), style: const TextStyle(fontSize: 10)))),
-                              DataCell(Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_rounded, size: 15),
-                                    tooltip: 'تعديل',
-                                    onPressed: () => showDialog(
-                                      context: context,
-                                      builder: (_) => AttendanceEditDialog(existingDocId: docId.isNotEmpty ? docId : null, existingData: recordForEdit),
-                                    ),
-                                  ),
-                                ],
+                              DataCell(SizedBox(width: 110, child: Text(statusText, style: TextStyle(fontSize: 10, color: hasDeduction ? Colors.red : Colors.green.shade700, fontWeight: FontWeight.w600)))),
+                              DataCell(SizedBox(width: 90, child: Text((record['notes'] ?? absType).toString(), style: const TextStyle(fontSize: 10)))),
+                              DataCell(IconButton(
+                                icon: const Icon(Icons.edit_rounded, size: 15),
+                                tooltip: 'تعديل',
+                                onPressed: () => showDialog(
+                                  context: context,
+                                  builder: (_) => AttendanceEditDialog(existingDocId: docId.isNotEmpty ? docId : null, existingData: recordForEdit),
+                                ),
                               )),
                             ],
                           );
@@ -4885,7 +5246,7 @@ class AttendanceSummaryPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('ملخص الحضور', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text('📋 ملخص الحضور', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           // بيانات يراها الجميع
           InfoLine(label: 'أيام الشهر', value: '${summary.monthDays} يوم'),
@@ -4898,7 +5259,7 @@ class AttendanceSummaryPanel extends StatelessWidget {
           // بيانات مالية للمدير فقط - تظهر حتى لو الراتب صفر
           if (showFinancials) ...[
             const Divider(),
-            Text('التفاصيل المالية', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.brown)),
+            Text('💰 التفاصيل المالية', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.brown)),
             const SizedBox(height: 4),
             InfoLine(label: 'الراتب الشهري', value: summary.baseSalary > 0 ? '${summary.baseSalary.toStringAsFixed(2)} جنيه' : 'غير محدد'),
             InfoLine(label: 'أجر اليوم الفعلي', value: summary.dailyRate > 0 ? '${summary.dailyRate.toStringAsFixed(2)} جنيه' : '-'),
@@ -5324,7 +5685,7 @@ class SpecialistPerformanceDialog extends StatelessWidget {
                         );
                       },
                       icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text('تصدير PDF تقرير الأداء'),
+                      label: const Text('📊 تصدير PDF تقرير الأداء'),
                     ),
                   ],
                 ],
@@ -5552,14 +5913,14 @@ class _SeniorFollowUpPageState extends State<SeniorFollowUpPage> {
     return PageWrap(
       children: [
         const HeroBox(
-          title: 'متابعة السينيور',
-          subtitle: 'نموذج التقييم الإشرافي - سجّل تقييمك لأداء الأخصائي مع الطفل.',
+          title: '⭐ متابعة السينيور',
+          subtitle: 'نموذج التقييم الإشرافي ⭐ - سجّل تقييمك لأداء الأخصائي 👨‍🏫 مع الطفل 👧.',
         ),
         const SizedBox(height: 12),
 
         // --- بطاقة اختيار الطفل والفترة ---
         SectionCard(
-          title: 'اختيار الطفل والفترة',
+          title: '🔍 اختيار الطفل والفترة',
           child: Column(
             children: [
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -5626,7 +5987,7 @@ class _SeniorFollowUpPageState extends State<SeniorFollowUpPage> {
 
         // --- نموذج التقييم ---
         SectionCard(
-          title: 'نموذج التقييم الإشرافي',
+          title: '📝 نموذج التقييم الإشرافي',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -5797,7 +6158,7 @@ class _SeniorFollowUpPageState extends State<SeniorFollowUpPage> {
                 icon: saving
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.save_rounded),
-                label: Text(saving ? 'جار الحفظ...' : 'حفظ تقييم السينيور'),
+                label: Text(saving ? '⏳ جار الحفظ...' : '💾 حفظ تقييم السينيور'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -5852,8 +6213,12 @@ class _PreviousSeniorReportsCard extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           final docs = snapshot.data?.docs ?? [];
           if (docs.isEmpty) return const Text('لا توجد تقييمات لهذا الأسبوع بعد.');
-          return Column(
-            children: docs.map((doc) {
+          return ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              final doc = docs[index];
               final r = doc.data();
               final stars = (r['rating'] as num? ?? 0).toInt();
               return Card(
@@ -5886,7 +6251,7 @@ class _PreviousSeniorReportsCard extends StatelessWidget {
                   ),
                 ),
               );
-            }).toList(),
+            },
           );
         },
       ),
@@ -6138,7 +6503,7 @@ class _TrashPageState extends State<TrashPage> {
         const HeroBox(title: 'السلة المتقدمة', subtitle: 'استعادة عنصر أو مجموعة أو الكل، أو حذف نهائي.'),
         const SizedBox(height: 12),
         SectionCard(
-          title: 'العناصر المحذوفة',
+          title: '🗑️ العناصر المحذوفة',
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance.collection('trash').orderBy('deletedAt', descending: true).snapshots(),
             builder: (context, snapshot) {
@@ -6241,42 +6606,48 @@ class _TrashPageState extends State<TrashPage> {
                   Text('إجمالي عناصر السلة: ${allDocs.length} | معروض: ${docs.length}',
                       style: const TextStyle(color: Colors.black54)),
                   const SizedBox(height: 8),
-                  ...docs.map((doc) {
-                    final item = doc.data();
-                    final title = item['itemTitle'] ?? 'عنصر محذوف';
-                    final collection = item['sourceCollection'] ?? item['collectionName'] ?? '-';
-                    final deletedAt = item['deletedAt'];
-                    final deletedAtText = deletedAt is Timestamp
-                        ? deletedAt.toDate().toIso8601String().split('T').first
-                        : '-';
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: CheckboxListTile(
-                        value: selectedIds.contains(doc.id),
-                        onChanged: (v) => setState(() {
-                          if (v == true) selectedIds.add(doc.id);
-                          else selectedIds.remove(doc.id);
-                        }),
-                        title: Text(title),
-                        subtitle: Text('المصدر: $collection | التاريخ: $deletedAtText\nحذف بواسطة: ${item['deletedBy'] ?? '-'}'),
-                        secondary: IconButton(
-                          icon: const Icon(Icons.restore_rounded),
-                          tooltip: 'استعادة',
-                          onPressed: loading ? null : () async {
-                            setState(() => loading = true);
-                            try {
-                              await restoreTrashDocument(doc.id, item);
-                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الاستعادة')));
-                            } catch (e) {
-                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل: $e')));
-                            } finally {
-                              if (mounted) setState(() => loading = false);
-                            }
-                          },
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      final doc = docs[index];
+                      final item = doc.data();
+                      final title = item['itemTitle'] ?? 'عنصر محذوف';
+                      final collection = item['sourceCollection'] ?? item['collectionName'] ?? '-';
+                      final deletedAt = item['deletedAt'];
+                      final deletedAtText = deletedAt is Timestamp
+                          ? deletedAt.toDate().toIso8601String().split('T').first
+                          : '-';
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: CheckboxListTile(
+                          value: selectedIds.contains(doc.id),
+                          onChanged: (v) => setState(() {
+                            if (v == true) selectedIds.add(doc.id);
+                            else selectedIds.remove(doc.id);
+                          }),
+                          title: Text(title),
+                          subtitle: Text('المصدر: $collection | التاريخ: $deletedAtText\nحذف بواسطة: ${item['deletedBy'] ?? '-'}'),
+                          secondary: IconButton(
+                            icon: const Icon(Icons.restore_rounded),
+                            tooltip: 'استعادة',
+                            onPressed: loading ? null : () async {
+                              setState(() => loading = true);
+                              try {
+                                await restoreTrashDocument(doc.id, item);
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الاستعادة')));
+                              } catch (e) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل: $e')));
+                              } finally {
+                                if (mounted) setState(() => loading = false);
+                              }
+                            },
+                          ),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    },
+                  ),
                 ],
               );
             },
