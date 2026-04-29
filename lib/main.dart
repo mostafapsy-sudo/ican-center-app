@@ -156,8 +156,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final emailController = TextEditingController(text: 'admin@ican.com');
-  final passwordController = TextEditingController(text: '123456');
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
   bool loading = false;
   bool rememberMe = true; // تذكرني مفعّل افتراضيًا
 
@@ -176,20 +176,28 @@ class _LoginPageState extends State<LoginPage> {
           await FirebaseAuth.instance.setPersistence(Persistence.SESSION);
         } catch (_) {}
       }
+
+      // تنظيف الإيميل: إزالة المسافات + تحويل لحروف صغيرة
+      final cleanEmail = emailController.text.trim().toLowerCase();
+      // تنظيف كلمة المرور: إزالة المسافات الزائدة من الطرفين فقط
+      final cleanPassword = passwordController.text.trim();
+
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
+        email: cleanEmail,
+        password: cleanPassword,
       );
     } on FirebaseAuthException catch (e) {
-      String msg = 'بيانات الدخول غير صحيحة';
+      String msg = 'حدث خطأ في الاتصال، حاول مرة أخرى';
       if (e.code == 'invalid-email') msg = 'صيغة البريد الإلكتروني غير صحيحة';
-      if (e.code == 'user-not-found') msg = 'المستخدم غير موجود';
+      if (e.code == 'user-not-found' || e.code == 'invalid-credential') msg = 'البريد الإلكتروني غير موجود أو بيانات الدخول غير صحيحة';
       if (e.code == 'wrong-password') msg = 'كلمة المرور غير صحيحة';
+      if (e.code == 'too-many-requests') msg = 'تم تجاوز عدد المحاولات، يرجى الانتظار ثم المحاولة مجددًا';
+      if (e.code == 'network-request-failed') msg = 'حدث خطأ في الاتصال بالإنترنت، تحقق من اتصالك وحاول مرة أخرى';
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حدث خطأ في الاتصال، حاول مرة أخرى')));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -2712,6 +2720,10 @@ class ReportPreviewCard extends StatelessWidget {
                         periodText: periodText,
                         averagePercent: avg,
                         docs: docs,
+                        reportType: reportType,
+                        month: month,
+                        year: year,
+                        week: week,
                       );
                     },
                     icon: const Icon(Icons.picture_as_pdf),
@@ -6773,11 +6785,44 @@ class SectionCard extends StatelessWidget {
 }
 
 
+/// أسماء الأشهر بالعربي
+String arabicMonthName(int month) {
+  const names = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  if (month < 1 || month > 12) return '$month';
+  return names[month];
+}
+
+/// تنظيف اسم الملف من الرموز الممنوعة
+String sanitizeFileName(String name) {
+  return name.replaceAll(RegExp(r'[/\\:*?"<>|]'), '').trim();
+}
+
+/// بناء اسم ملف PDF منظم
+String buildPdfFileName({
+  required String childName,
+  required String reportType,
+  required int month,
+  required int year,
+  int week = 1,
+}) {
+  final safeChild = sanitizeFileName(childName.isNotEmpty ? childName : 'تقرير طفل');
+  final monthName = arabicMonthName(month);
+  if (reportType == 'أسبوعي') {
+    return '$safeChild - الأسبوع رقم $week - $monthName - $year.pdf';
+  } else {
+    return '$safeChild - $monthName - $year.pdf';
+  }
+}
+
 Future<void> exportReportPdf({
   required String childName,
   required String periodText,
   required int averagePercent,
   required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  String reportType = 'شهري',
+  int month = 1,
+  int year = 2026,
+  int week = 1,
 }) async {
   final pdf = pw.Document();
 
@@ -6967,7 +7012,13 @@ Future<void> exportReportPdf({
 
   await Printing.layoutPdf(
     onLayout: (PdfPageFormat format) async => pdf.save(),
-    name: 'ICAN_Report_$childName.pdf',
+    name: buildPdfFileName(
+      childName: childName,
+      reportType: reportType,
+      month: month,
+      year: year,
+      week: week,
+    ),
   );
 }
 
